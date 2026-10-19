@@ -1,0 +1,48 @@
+/* Mission briefing: full-screen, sharp, restrained. One motion system: label -> headline lines from alternating sides -> body. */
+.bf{position:fixed;inset:0;z-index:300;background:var(--ink);color:var(--text);display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-height:100dvh;overflow:hidden}
+.bf__top{display:flex;align-items:center;gap:1rem;padding:max(.9rem,env(safe-area-inset-top)) var(--gutter) .9rem;border-bottom:1px solid var(--line)}
+.bf__label{color:var(--mute);margin-right:auto;min-width:0}
+.bf__count{color:var(--red-text);font-variant-numeric:tabular-nums}
+.bf__main{overflow-y:auto;overflow-x:hidden;display:flex;padding:clamp(1.5rem,1rem + 4vw,4rem) var(--gutter)}
+.bf__slide{position:relative;margin:auto;width:min(100%,64rem);display:grid;gap:clamp(.8rem,.5rem + 1vw,1.4rem);justify-items:start;text-align:left}
+.bf__kicker{color:var(--red-text)}
+.bf__h{font-family:var(--font-display);font-weight:400;font-style:italic;text-transform:uppercase;font-size:clamp(2.2rem,.9rem + 6.4vw,6.4rem);line-height:.96;letter-spacing:.01em;outline:none;overflow-wrap:anywhere;max-width:100%}
+.bf__line{display:block}
+.bf__tag{color:var(--red-text);font-size:var(--step-0)}
+.bf__body{display:grid;gap:1rem;max-width:44rem}
+.bf__p{font-size:var(--step-1);line-height:1.45;color:var(--text)}
+.bf__list{list-style:none;padding:0;margin:0;display:grid;gap:.55rem}
+.bf__list li{display:grid;grid-template-columns:1rem 1fr;gap:.6rem;color:var(--text);line-height:1.45}
+.bf__list li::before{content:"";width:.5rem;height:2px;background:var(--red);margin-top:.8em}
+.bf__note{color:var(--mute);font-size:var(--step--1);border-left:2px solid var(--line);padding-left:.8rem}
+.bf__facts{display:flex;flex-wrap:wrap;gap:.8rem 2.2rem;margin-top:.4rem}
+.bf__facts dt{color:var(--mute)}.bf__facts dd{font-weight:600;font-size:var(--step-0)}
+.bf__foot{border-top:1px solid var(--line);padding:.9rem var(--gutter) max(1rem,env(safe-area-inset-bottom));display:grid;gap:.9rem}
+.bf__progress{list-style:none;margin:0;padding:0;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:.35rem}
+.bf__progress li{height:3px;background:var(--line);transform-origin:left;transition:background-color .3s}
+.bf__progress li.is-on{background:var(--red)}
+.bf__navrow{display:flex;justify-content:space-between;gap:1rem}
+.bf__navrow .btn{min-width:7.5rem}
+.bf__prev[aria-hidden]{visibility:hidden}
+.bf__accept{flex:1;max-width:30rem;margin-left:auto}
+.bf__error{color:var(--err);font-size:var(--step--1);margin-bottom:.4rem;text-align:right}
+@media (max-width:34rem){.bf__navrow .btn{min-width:0;flex:1}.bf__accept{max-width:none}.bf__label{font-size:.7rem}}
+
+/* Entrance: only transform/opacity, one pass per slide, killed by reduced motion */
+@media (prefers-reduced-motion:no-preference){
+  .bf{animation:bf-fade .3s ease-out both}
+  .bf__kicker{animation:bf-up .35s ease-out both}
+  .bf__line{animation:bf-side .55s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(.12s + var(--n) * .09s)}
+  .bf__tag,.bf__body{animation:bf-up .45s ease-out both;animation-delay:.5s}
+  .bf__sweep{position:absolute;left:0;top:-1.2rem;height:2px;width:100%;background:var(--red);transform-origin:left;animation:bf-sweep .6s cubic-bezier(.7,0,.2,1) both}
+  .bf__progress li{transition:background-color .3s}
+}
+@keyframes bf-fade{from{opacity:0}to{opacity:1}}
+@keyframes bf-up{from{opacity:0;transform:translateY(.6rem)}to{opacity:1;transform:none}}
+@keyframes bf-side{from{opacity:0;transform:translateX(calc(var(--dir) * 5rem))}to{opacity:1;transform:none}}
+@keyframes bf-sweep{0%{transform:scaleX(0);opacity:1}70%{transform:scaleX(1);opacity:1}100%{transform:scaleX(1);opacity:0}}
+@media (prefers-reduced-motion:reduce){.bf__sweep{display:none}}
+/* Pre-check cover: hides the dashboard while we ask the server whether this team has already completed the briefing. */
+.bf-cover{position:fixed;inset:0;z-index:299;background:var(--ink)}
+.bf__count,.bf__exit{white-space:nowrap}
+@media (max-width:34rem){.bf__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}

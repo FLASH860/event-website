@@ -1,0 +1,35 @@
+:root {
+  /* Colour: restrained. Red is reserved for the title and primary actions. */
+  --ink: #101010;
+  --surface: #1a1a1a;
+  --surface-2: #222222;
+  --line: #353535;
+  --text: #f3f1ed;
+  --mute: #a4a4a4;
+  --red: #d3262e;
+  --red-text: #f0565c;
+  --red-ink: #ffffff;
+  --amber: #e5ab2c;
+  --ok: #6fbf8a;
+  --err: #ff7a85;
+
+  --font-display: 'Anton', 'Oswald', Impact, 'Arial Narrow', sans-serif;
+  --font-body: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Fluid type scale */
+  --step--1: clamp(0.8rem, 0.78rem + 0.1vw, 0.875rem);
+  --step-0: clamp(1rem, 0.96rem + 0.2vw, 1.125rem);
+  --step-1: clamp(1.2rem, 1.1rem + 0.5vw, 1.5rem);
+  --step-2: clamp(1.6rem, 1.3rem + 1.4vw, 2.5rem);
+  --step-3: clamp(2.1rem, 1.5rem + 3vw, 4rem);
+
+  /* Fluid space */
+  --gap: clamp(1rem, 0.8rem + 1vw, 1.75rem);
+  --block: clamp(3rem, 2rem + 5vw, 7rem);
+  --gutter: clamp(1rem, 0.6rem + 2.5vw, 2.5rem);
+  --measure: 68ch;
+  --maxw: 74rem;
+  --radius: 4px;
+  --tap: 2.75rem;
+}
