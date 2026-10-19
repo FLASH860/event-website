@@ -12,6 +12,7 @@ export default defineConfig({
   envDir: path.resolve(here, '..'), // reads the same .env.local as the team site
   publicDir: path.resolve(here, '../public'),
   plugins: [react()],
+  optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-dev-runtime', 'react-router-dom', '@supabase/supabase-js', 'qrcode'] },
   server: { host: '127.0.0.1', port: 5174, strictPort: true, fs: { allow: [path.resolve(here, '..')] } },
   build: { outDir: path.resolve(here, 'dist'), emptyOutDir: true },
 })

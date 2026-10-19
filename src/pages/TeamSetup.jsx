@@ -4,23 +4,17 @@ import Wordmark from '../components/Wordmark'
 import { useAuth } from '../auth/AuthContext'
 import { createTeam, joinTeam } from '../auth/authApi'
 import { EVENT } from '../config/eventConfig'
+import { TEAM_REASONS as REASONS } from '../auth/teamReasons'
+import { useLocation } from 'react-router-dom'
 
-const REASONS = {
-  name_taken: 'That team name is already taken. Choose another.',
-  invalid_name: 'Team names must be 2 to 40 characters.',
-  invalid_code: 'No team has that code. Check the 6 digits with your teammate.',
-  team_full: `That team is already full (${EVENT.teamMax} members).`,
-  too_many: 'Too many wrong codes. Wait about 10 minutes and try again.',
-  already_in_team: 'You are already in a team.',
-  not_allowed: 'This account cannot join a team.',
-}
 
 // Shown to a signed-in player who has no team yet: one person creates the team, everyone else joins with its 6-digit code.
 export default function TeamSetup() {
   const { user, refresh, signOut } = useAuth()
-  const [mode, setMode] = useState('create')
+  const loc = useLocation()
+  const [mode, setMode] = useState(loc.state?.mode || 'create')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(loc.state?.teamError || null)
 
   async function run(fn) {
     setBusy(true); setError(null)
