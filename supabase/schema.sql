@@ -372,28 +372,39 @@ begin
   return jsonb_build_object('ok', true, 'team', public._team_json(v_team));
 end $$;
 
-create or replace function public.join_team(p_code text, p_display_name text default null) returns jsonb
+-- "Log in" for teammates: only the team's 6-digit code and your name. The browser first gets an anonymous Supabase session
+-- (Authentication > Providers > "Allow anonymous sign-ins"), then calls this to attach that session to the team.
+-- If someone with the same name is already in the team, this person is that member coming back (new phone, cleared browser):
+-- the older session is detached and this one takes its place, so the member count never grows.
+create or replace function public.login_with_code(p_code text, p_display_name text) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u uuid := auth.uid(); p public.profiles; t public.teams; v_code text := btrim(coalesce(p_code, '')); v_dn text := btrim(coalesce(p_display_name, '')); fails int;
+declare u uuid := auth.uid(); p public.profiles; t public.teams; v_code text := btrim(coalesce(p_code, '')); v_dn text := btrim(coalesce(p_display_name, '')); fails int; old uuid;
 begin
   if u is null then raise exception 'not_authenticated' using errcode = 'P0001'; end if;
   select * into p from public.profiles where id = u for update;
   if not found or p.role <> 'team' then return jsonb_build_object('ok', false, 'reason', 'not_allowed'); end if;
   if p.team_id is not null then return jsonb_build_object('ok', false, 'reason', 'already_in_team'); end if;
-  -- Throttle guessing: 8 wrong codes per 10 minutes per account.
+  if char_length(v_dn) not between 1 and 40 then return jsonb_build_object('ok', false, 'reason', 'invalid_name'); end if;
+  -- Throttle guessing: 8 wrong codes per 10 minutes per session, and a global ceiling while under attack.
   select count(*) into fails from public.join_attempts where user_id = u and not ok and at > now() - interval '10 minutes';
   if fails >= 8 then return jsonb_build_object('ok', false, 'reason', 'too_many'); end if;
+  select count(*) into fails from public.join_attempts where not ok and at > now() - interval '10 minutes';
+  if fails >= 300 then return jsonb_build_object('ok', false, 'reason', 'too_many'); end if;
   select * into t from public.teams where join_code = v_code for update;
   if not found then
     insert into public.join_attempts (user_id, ok) values (u, false);
     return jsonb_build_object('ok', false, 'reason', 'invalid_code');
   end if;
-  if (select count(*) from public.profiles where team_id = t.id) >= public._team_max() then
+  select id into old from public.profiles where team_id = t.id and id <> u and lower(btrim(display_name)) = lower(v_dn) limit 1;
+  if old is not null then
+    update public.profiles set team_id = null where id = old;
+    perform public._audit('team_login_takeover', t.name || ': ' || v_dn);
+  elsif (select count(*) from public.profiles where team_id = t.id) >= public._team_max() then
     return jsonb_build_object('ok', false, 'reason', 'team_full');
   end if;
-  update public.profiles set team_id = t.id, display_name = case when v_dn <> '' then left(v_dn, 60) else display_name end where id = u;
+  update public.profiles set team_id = t.id, display_name = left(v_dn, 60) where id = u;
   insert into public.join_attempts (user_id, ok) values (u, true);
-  perform public._audit('team_joined', t.name);
+  perform public._audit('team_login', t.name || ': ' || v_dn);
   return jsonb_build_object('ok', true, 'team', public._team_json(t.id));
 end $$;
 
@@ -900,7 +911,7 @@ grant execute on function public.get_gameplay_status() to anon, authenticated;
 
 -- Signed-in players
 grant execute on function
-  public.get_my_profile(), public.set_display_name(text), public.create_team(text, text, text), public.join_team(text, text), public.leave_team(),
+  public.get_my_profile(), public.set_display_name(text), public.create_team(text, text, text), public.login_with_code(text, text), public.leave_team(),
   public.get_mission_state(), public.submit_answer(int, text), public.list_my_submissions(), public.verify_checkpoint(text),
   public.list_announcements(), public.get_my_progress(), public.get_briefing_status(), public.complete_briefing()
 to authenticated;

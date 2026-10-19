@@ -40,6 +40,13 @@ export function AuthProvider({ children }) {
       if (!r.needsConfirmation) apply(await api.getInitialSession())
       return r
     },
+    // Teammates: team code + name only. -> { ok, reason? }
+    async loginWithCode(code, name) {
+      setNotice(null); clearBriefingLeft()
+      const r = await api.loginWithCode(code, name)
+      if (r.ok || r.reason === 'already_in_team') apply(await api.getInitialSession())
+      return r
+    },
     async signOut() { try { await api.signOut() } catch { /* ignore */ } clearBriefingLeft(); setState({ ...anon }) },
     // Re-reads profile + team from the server (after creating, joining or leaving a team).
     async refresh() { apply(await api.getInitialSession()) },

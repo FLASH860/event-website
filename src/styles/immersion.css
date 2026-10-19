@@ -122,3 +122,8 @@ textarea{width:100%;padding:.6rem .8rem;background:var(--surface);color:var(--te
 .teamcard__code{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 .joincode{font-family:var(--font-mono);font-size:clamp(1.8rem,1.2rem + 3vw,2.8rem);letter-spacing:.35em;margin:.2rem 0 0}
 .linkbtn{background:none;border:0;padding:0;cursor:pointer;font:inherit}
+
+.teamstrip{display:flex;gap:2rem;flex-wrap:wrap;align-items:center;justify-content:space-between;border:1px solid var(--line);background:var(--surface);padding:.8rem 1rem;margin-bottom:var(--gap)}
+.teamstrip__code{display:grid;gap:.1rem}
+.joincode--sm{font-size:1.6rem;background:none;border:0;padding:0;color:inherit;cursor:pointer;text-align:left}
+.teamstrip__names{display:flex;gap:.4rem 1.2rem;flex-wrap:wrap;list-style:none;margin:.2rem 0 0;padding:0}

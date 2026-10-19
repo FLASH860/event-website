@@ -7,6 +7,7 @@ import { getMyProgress } from '../../lib/missionApi'
 import QuestionPanel from '../../components/mission/QuestionPanel'
 import MissionLog from '../../components/mission/MissionLog'
 import TeamIntro from '../../components/mission/TeamIntro'
+import TeamStrip from '../../components/TeamStrip'
 
 // Mission screen: ONE composition. Header line (which stage) -> question (primary) beside the four-question log -> compact status.
 // Official stage status, robot-component recovery and detailed scores live on the Overview page, not here.
@@ -29,6 +30,7 @@ export default function TeamDashboard() {
   return (
     <>
       <TeamIntro id={user?.id || user?.email} name={user?.team?.name} hold={briefingActive} />
+      <TeamStrip />
 
       {latest && (
         <p className="newsbar" role="status"><span className="newsbar__dot" aria-hidden="true" /><span className="mono">New announcement</span><strong>{latest.title}</strong><Link className="link" to="/team/announcements">Read</Link></p>

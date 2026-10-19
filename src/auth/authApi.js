@@ -61,5 +61,19 @@ export async function updatePassword(password) {
 
 // ---- teams ----
 export const createTeam = (name, college, displayName) => rpc('create_team', { p_name: name, p_college: college, p_display_name: displayName })
-export const joinTeam = (code, displayName) => rpc('join_team', { p_code: code, p_display_name: displayName })
+
+// "Log in" with only the team's 6-digit code and your name. Needs Supabase's anonymous sign-ins switched on.
+// Reuses an existing session if there is one; a failed attempt does not leave a stray anonymous session behind.
+export async function loginWithCode(code, name) {
+  need()
+  const { data: cur } = await supabase.auth.getSession()
+  const fresh = !cur.session
+  if (fresh) {
+    const { error } = await supabase.auth.signInAnonymously({ options: { data: { name } } })
+    if (error) throw new Error(/anonymous/i.test(error.message) ? 'Logging in with a team code is not switched on yet. Ask an organiser.' : 'Could not reach the server. Try again.')
+  }
+  const r = await rpc('login_with_code', { p_code: code, p_display_name: name })
+  if (!r.ok && fresh) await supabase.auth.signOut()
+  return r
+}
 export const leaveTeam = () => rpc('leave_team')

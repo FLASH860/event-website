@@ -16,6 +16,7 @@ Deploy only the team site (`npm run build`, serve `dist/` with an SPA fallback s
 2. Create a Supabase project. In **Project Settings → API** copy the Project URL and the **anon/publishable** key into `.env.local` (see `.env.example`). Never put the `service_role` key anywhere in this repo.
 3. Supabase **SQL Editor → New query**, paste all of `supabase/schema.sql`, **Run**. Safe to run again.
 4. **Authentication → Providers → Email**: for the event, turn **off** "Confirm email" (otherwise every player needs a working inbox, and the free tier only sends a few emails per hour).
+   Also turn **on** *Allow anonymous sign-ins* (Authentication → Sign In / Providers): teammates log in with just the team code and their name, which uses an anonymous session. Then raise the limit under **Authentication → Rate Limits → anonymous users** (default 30 per hour per IP; everyone on the venue Wi-Fi shares an IP, so set it to a few hundred).
 5. Create your organiser account: **Authentication → Users → Add user** (email + password, tick *Auto Confirm User*). Then in the SQL editor:
    ```sql
    update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'YOU@example.com');
@@ -26,7 +27,7 @@ Roles can only be changed in the SQL editor. A player cannot make themselves an 
 
 ## How a game works
 
-1. A player signs up (`/signup`), then **creates a team** (gets a 6-digit join code) or **joins** one with a code. Teams hold up to 4 members; everyone has their own login and shares one team's progress.
+1. One person per team opens **Create account** (`/signup`): team name, their name, email, password. The team gets a 6-digit code, shown on the dashboard. Teammates use **Log in** (`/login`) with only that code and their own name. Teams hold up to 4 members and share one progress. Logging in again with the same name takes over that member's seat (new phone, cleared browser) without adding a fifth member.
 2. When the mission window is open, the team sees Question 1. A correct answer unlocks the next question (rule set in Admin → Settings: answer only / QR recovery / answer + organiser approval).
 3. A hint (location) appears when the question is solved, or when an organiser releases it. The team scans the QR at that spot to recover the component.
 

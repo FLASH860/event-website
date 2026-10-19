@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Field, Notice } from '../components/ui'
 import Wordmark from '../components/Wordmark'
 import { useAuth } from '../auth/AuthContext'
-import { createTeam, joinTeam } from '../auth/authApi'
+import { createTeam, loginWithCode } from '../auth/authApi'
 import { EVENT } from '../config/eventConfig'
 import { TEAM_REASONS as REASONS } from '../auth/teamReasons'
 import { useLocation } from 'react-router-dom'
@@ -25,7 +25,7 @@ export default function TeamSetup() {
     } catch { setError('Could not reach the server. Try again.') } finally { setBusy(false) }
   }
   const onCreate = (e) => { e.preventDefault(); const f = new FormData(e.currentTarget); run(() => createTeam(String(f.get('name')).trim(), String(f.get('college')).trim(), user?.name)) }
-  const onJoin = (e) => { e.preventDefault(); const f = new FormData(e.currentTarget); run(() => joinTeam(String(f.get('code')).replace(/\s/g, ''), user?.name)) }
+  const onJoin = (e) => { e.preventDefault(); const f = new FormData(e.currentTarget); run(() => loginWithCode(String(f.get('code')).replace(/\s/g, ''), String(f.get('name')).trim())) }
 
   return (
     <div className="container block narrow">
@@ -49,10 +49,11 @@ export default function TeamSetup() {
           </form>
         : <form className="form" onSubmit={onJoin}>
             <Field id="tcode" label="6-digit join code" hint="Ask the teammate who created the team.">{(p) => <input {...p} name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" maxLength="7" autoComplete="off" required />}</Field>
+            <Field id="tjname" label="Your name">{(p) => <input {...p} name="name" maxLength="40" required defaultValue={user?.name || ''} autoComplete="name" />}</Field>
             <Button type="submit" disabled={busy}>{busy ? 'Joining…' : 'Join team'}</Button>
           </form>}
 
-      <p className="muted small" style={{ marginTop: '1.5rem' }}>Signed in as {user?.email}. <button type="button" className="link linkbtn" onClick={signOut}>Log out</button></p>
+      <p className="muted small" style={{ marginTop: '1.5rem' }}>Signed in as {user?.email || user?.name || 'a guest'}. <button type="button" className="link linkbtn" onClick={signOut}>Log out</button></p>
     </div>
   )
 }
