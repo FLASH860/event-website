@@ -4,8 +4,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // Runs supabase/schema.sql in an in-memory Postgres (PGlite) with a stub of Supabase's auth schema, then attacks it:
-// players reading tables, guessing answers, skipping questions, calling admin functions. Run: npm run test:db
-
+// players reading tables, guessing answers, skipping missions, calling organiser functions. Run: npm run test:db
 const db = new PGlite({ extensions: { pgcrypto } })
 await db.exec(`
   create schema auth; create schema extensions;
@@ -27,8 +26,7 @@ for (const n of ['admin', 'p1', 'p2', 'p3', 'p4', 'p5', 'solo']) {
   U[n] = r.rows[0].id
 }
 await db.exec(`update public.profiles set role='admin' where id='${U.admin}'`)
-const roleOfP1 = (await db.query(`select role from public.profiles where id=$1`, [U.p1])).rows[0].role
-ok('signup metadata cannot set role=admin', roleOfP1 === 'team')
+ok('signup metadata cannot set role=admin', (await db.query(`select role from public.profiles where id=$1`, [U.p1])).rows[0].role === 'team')
 
 async function as(who, query, params = [], role = 'authenticated') {
   await db.exec(`reset role; select set_config('test.uid', '${who ? U[who] : ''}', false); set role ${role};`)
@@ -37,136 +35,126 @@ async function as(who, query, params = [], role = 'authenticated') {
 }
 const rpc = (who, fn, ...args) => as(who, `select public.${fn}(${args.map((_, i) => '$' + (i + 1)).join(',')}) as r`, args.map((a) => (typeof a === 'object' && a !== null ? JSON.stringify(a) : a)))
 
-// ---- direct table access is impossible
-for (const t of ['question_secrets', 'profiles', 'teams', 'team_attempts', 'audit_log', 'components', 'questions', 'announcements']) {
+// ---- nothing is readable or writable directly
+for (const t of ['question_secrets', 'profiles', 'teams', 'team_attempts', 'audit_log', 'components', 'questions', 'team_timers', 'team_progress']) {
   const r = await as('p1', `select * from public.${t}`)
   ok(`player cannot SELECT ${t} directly`, !r.ok && /permission denied/.test(r.err), r.err)
 }
-const w = await as('p1', `update public.profiles set role='admin' where id='${U.p1}'`)
+let w = await as('p1', `update public.profiles set role='admin' where id='${U.p1}'`)
 ok('player cannot UPDATE profiles (self-promote)', !w.ok && /permission denied/.test(w.err), w.err)
-const w2 = await as('p1', `insert into public.team_progress (team_id, idx, solved_at) values (gen_random_uuid(), 1, now())`)
-ok('player cannot INSERT progress', !w2.ok)
-const anonProfile = await as(null, `select public.get_my_profile()`, [], 'anon')
-ok('anon cannot call get_my_profile', !anonProfile.ok && /permission denied/.test(anonProfile.err), anonProfile.err)
-const anonGp = await as(null, `select public.get_gameplay_status()`, [], 'anon')
-ok('anon can read gameplay status', anonGp.ok && anonGp.v.state === 'open', JSON.stringify(anonGp))
-const internal = await as('p1', `select public._need_admin()`)
-ok('internal helpers are not callable', !internal.ok)
-const hashfn = await as('p1', `select public._answer_hash('a','b')`)
-ok('hash helper is not callable', !hashfn.ok)
-
-// ---- admin RPCs reject players
-for (const fn of ['admin_list_teams()', 'admin_list_questions()', 'admin_audit(10)', 'admin_stats()']) {
-  const r = await as('p1', `select public.${fn}`)
-  ok(`player blocked from ${fn}`, !r.ok && /forbidden/.test(r.err), r.err)
+w = await as('p1', `insert into public.team_progress (team_id, idx, solved_at) values (gen_random_uuid(), 1, now())`)
+ok('player cannot INSERT progress', !w.ok)
+w = await as(null, `select public.get_my_profile()`, [], 'anon'); ok('anon cannot call get_my_profile', !w.ok && /permission denied/.test(w.err), w.err)
+w = await as(null, `select public.get_gameplay_status()`, [], 'anon'); ok('anon can read gameplay status', w.ok && w.v.state === 'open', JSON.stringify(w))
+for (const fn of ['_need_admin()', "_answer_hash('a','b')", "set_question(1,'t','b',array['x'])", 'verify_checkpoint', 'admin_stats()']) {
+  const r = await as('admin', `select public.${fn.includes('(') ? fn : fn + '(\'x\')'}`)
+  ok(`not callable from the API even by an organiser: ${fn}`, !r.ok, JSON.stringify(r))
 }
-const adm = await rpc('admin', 'admin_stats'); ok('admin can call admin_stats', adm.ok, adm.err)
+for (const q of ['admin_list_teams()', "admin_set_timer(null, 5)", 'admin_start_timer(null)', 'admin_stop_timer(null)']) {
+  const r = await as('p1', `select public.${q}`)
+  ok(`player blocked from ${q}`, !r.ok && /forbidden/.test(r.err), r.err)
+}
 
 // ---- teams
-let r = await rpc('p5', 'get_mission_state'); ok('no-team player cannot read mission', !r.ok && /no_team/.test(r.err), r.err)
+let r = await rpc('p5', 'get_mission_state'); ok('no-team player cannot read the mission', !r.ok && /no_team/.test(r.err), r.err)
 r = await rpc('p1', 'create_team', 'Alpha', 'PES', 'Priya'); ok('create_team ok', r.v.ok === true, JSON.stringify(r.v))
 const team = r.v.team; ok('join code is 6 digits', /^\d{6}$/.test(team.joinCode), team.joinCode)
-r = await rpc('p1', 'create_team', 'Other', '', ''); ok('cannot create second team', r.v.reason === 'already_in_team')
+r = await rpc('p1', 'create_team', 'Other', '', ''); ok('cannot create a second team', r.v.reason === 'already_in_team')
 r = await rpc('p2', 'create_team', ' alpha ', '', ''); ok('team name unique (case/space-insensitive)', r.v.reason === 'name_taken', JSON.stringify(r.v))
-r = await rpc('p2', 'create_team', 'x', '', ''); ok('short name rejected', r.v.reason === 'invalid_name')
+r = await rpc('p2', 'create_team', 'x', '', ''); ok('short team name rejected', r.v.reason === 'invalid_name')
 r = await rpc('p2', 'login_with_code', '000000', 'Bob'); ok('wrong code rejected', r.v.reason === 'invalid_code')
-r = await rpc('p2', 'login_with_code', team.joinCode, 'Bob'); ok('join with code works', r.v.ok === true && r.v.team.members.length === 2, JSON.stringify(r.v))
+r = await rpc('p2', 'login_with_code', team.joinCode, 'Bob'); ok('log in with code + name works', r.v.ok === true && r.v.team.members.length === 2, JSON.stringify(r.v))
 await rpc('p3', 'login_with_code', team.joinCode, 'Cy'); await rpc('p4', 'login_with_code', team.joinCode, 'Di')
 r = await rpc('p5', 'login_with_code', team.joinCode, 'Eve'); ok('5th member rejected (team_full)', r.v.reason === 'team_full', JSON.stringify(r.v))
 for (let i = 0; i < 8; i++) await rpc('solo', 'login_with_code', '11111' + i, 'S')
-r = await rpc('solo', 'login_with_code', team.joinCode, 'S'); ok('join code guessing throttled', r.v.reason === 'too_many', JSON.stringify(r.v))
-r = await rpc('p2', 'get_my_profile'); ok('profile shows team + join code to a member', r.v.team.joinCode === team.joinCode && r.v.role === 'team')
-r = await rpc('p5', 'login_with_code', team.joinCode, ' bob '); ok('same name = member coming back: takes over even when full', r.v.ok === true && r.v.team.members.length === 4, JSON.stringify(r.v))
+r = await rpc('solo', 'login_with_code', team.joinCode, 'S'); ok('code guessing throttled', r.v.reason === 'too_many', JSON.stringify(r.v))
+r = await rpc('p2', 'get_my_profile'); ok('member sees team + code + names', r.v.team.joinCode === team.joinCode && r.v.team.members.map((m) => m.name).includes('Priya'))
+r = await rpc('p5', 'login_with_code', team.joinCode, ' bob '); ok('same name = member coming back: takes the seat even when full', r.v.ok === true && r.v.team.members.length === 4, JSON.stringify(r.v))
 r = await rpc('p2', 'get_my_profile'); ok('the older session loses the team', r.v.team === null)
 r = await rpc('p2', 'get_mission_state'); ok('older session can no longer read the mission', !r.ok && /no_team/.test(r.err))
 r = await rpc('p2', 'login_with_code', team.joinCode, ''); ok('empty name rejected', r.v.reason === 'invalid_name')
 
-// ---- content (admin)
-const ans = ['Blue Whale', 'whale']
-const seededList = await rpc('admin', 'admin_list_questions'), seededOk = await rpc('admin', 'admin_check_answer', 1, 'mission')
-ok('fresh database ships a sample Mission 1 (answer MISSION)', seededList.v[0].active === true && seededOk.v === true, JSON.stringify(seededList.v[0]))
-r = await rpc('admin', 'admin_save_question', 3, { active: true, title: 'Q3', body: 'b' }); ok('cannot activate question without answers', !r.ok && /answers_required/.test(r.err), r.err)
-r = await rpc('admin', 'admin_save_question', 1, { active: true, title: 'Q1', body: 'Largest animal?', type: 'text', acceptedAnswers: ans, hintText: 'Go to the library', component: { code: 'HEAD', locationNote: 'secret place', method: 'qr' } })
-ok('admin saves Q1', r.ok, r.err)
-r = await rpc('admin', 'admin_save_question', 2, { active: true, title: 'Q2', body: 'Pick', type: 'choice', options: ['A', 'B'], acceptedAnswers: ['B'], hintText: 'hint2' }); ok('admin saves Q2 (choice)', r.ok, r.err)
+// ---- missions: fresh database ships a sample Mission 1 (MISSION); real questions are authored in the SQL editor
+r = await rpc('p1', 'get_mission_state')
+ok('sample Mission 1 is open, Missions 2-4 locked', r.v.questions[0].status === 'available' && r.v.questions.slice(1).every((q) => q.status === 'locked'), JSON.stringify(r.v.questions.map((q) => q.status)))
+ok('sample answer is not in the payload', !/MISSION$/i.test(JSON.stringify(r.v).replace('Type MISSION to solve it', '')))
+await db.exec(`select public.set_question(1, 'Q1', 'Largest animal?', array['Blue Whale', 'whale'], 'Go to the library')`)
+await db.exec(`select public.set_question(2, 'Q2', 'Pick', array['B'], 'hint2', true, 'choice', '["A","B"]'::jsonb)`)
 const secrets = (await db.query(`select * from public.question_secrets where idx=1`)).rows[0]
 ok('answers stored hashed (no plaintext)', !JSON.stringify(secrets).toLowerCase().includes('whale') && secrets.answer_hashes.length === 2)
-r = await rpc('admin', 'admin_list_questions'); ok('admin_list_questions leaks no answers/hash', !JSON.stringify(r.v).toLowerCase().includes('whale') && !/hash/i.test(JSON.stringify(r.v)) && r.v[0].answerCount === 2)
-r = await rpc('admin', 'admin_check_answer', 1, ' BLUE   whale '); ok('admin can test an answer (normalised)', r.v === true)
+let bad = false; try { await db.exec(`select public.set_question(3, 'Q3', 'b', array[]::text[])`) } catch { bad = true }
+ok('cannot activate a question with no answers', bad)
 
-// ---- mission
 r = await rpc('p3', 'get_mission_state'); const st = r.v
-ok('teammate sees shared state', st.questions[0].status === 'available')
-ok('Q2 locked: only index+status', Object.keys(st.questions[1]).sort().join() === 'index,status' && st.questions[1].status === 'locked', JSON.stringify(st.questions[1]))
-ok('Q1 payload has no answers/hints before solving', !/whale|library|secret|hash/i.test(JSON.stringify(st)) && st.questions[0].hint.status === 'hidden', JSON.stringify(st.questions[0]))
-r = await rpc('p3', 'submit_answer', 2, 'B'); ok('cannot answer locked Q2', r.v.result === 'locked')
-r = await rpc('p3', 'submit_answer', 1, 'nope'); ok('wrong answer -> incorrect, no state', r.v.result === 'incorrect' && !r.v.state, JSON.stringify(r.v))
-r = await rpc('p3', 'submit_answer', 1, 'whale'); ok('immediate retry rate-limited', r.v.result === 'too_fast', JSON.stringify(r.v))
+ok('Q2 locked: only index + status', Object.keys(st.questions[1]).sort().join() === 'index,status', JSON.stringify(st.questions[1]))
+ok('open Q1 payload has no answers and a hidden hint', !/whale|library|hash/i.test(JSON.stringify(st)) && st.questions[0].hint.status === 'hidden')
+r = await rpc('p3', 'submit_answer', 2, 'B'); ok('cannot answer a locked mission', r.v.result === 'locked')
+r = await rpc('p3', 'submit_answer', 1, 'nope'); ok('wrong answer -> incorrect, no state', r.v.result === 'incorrect' && !r.v.state)
+r = await rpc('p3', 'submit_answer', 1, 'whale'); ok('immediate retry rate-limited', r.v.result === 'too_fast')
 await db.exec(`update public.team_attempts set submitted_at = now() - interval '10 seconds'`)
-r = await rpc('p4', 'submit_answer', 1, 'WHALE'); ok('teammate submits correct answer', r.v.result === 'correct' && r.v.state.questions[1].status === 'available', JSON.stringify(r.v).slice(0, 300))
-ok('hint unlocked only after solving', r.v.state.questions[0].hint.text === 'Go to the library')
+r = await rpc('p4', 'submit_answer', 1, 'WHALE'); ok('a teammate solves it (shared progress)', r.v.result === 'correct' && r.v.state.questions[1].status === 'available')
+ok('hint appears immediately on solving', r.v.state.questions[0].hint.text === 'Go to the library')
 ok('response never contains accepted answers', !/Blue Whale/.test(JSON.stringify(r.v)))
 r = await rpc('p3', 'submit_answer', 1, 'whale'); ok('resubmit -> already_solved', r.v.result === 'already_solved')
 r = await rpc('p3', 'list_my_submissions'); ok('submissions listed with who', r.v.length === 2 && r.v[0].by)
-const outsider = await rpc('solo', 'list_my_submissions'); ok('other team/no-team cannot see submissions', !outsider.ok)
 
 // ---- teams are isolated
 r = await rpc('solo', 'create_team', 'Beta', '', 'Sol'); ok('second team created', r.v.ok)
-r = await rpc('solo', 'get_mission_state'); ok('team Beta has fresh progress (Q2 locked)', r.v.questions[1].status === 'locked' && r.v.solvedCount === 0)
+r = await rpc('solo', 'get_mission_state'); ok('Beta has fresh progress', r.v.questions[1].status === 'locked' && r.v.solvedCount === 0)
 
-// ---- QR
-r = await rpc('admin', 'admin_generate_token', 1); const tok = r.v; ok('token generated', /^RAS[0-9a-f]{32}$/.test(tok))
-ok('raw token not stored', (await db.query(`select count(*)::int c from public.components where token_hash = $1`, [tok])).rows[0].c === 0)
-r = await rpc('p1', 'verify_checkpoint', 'bogus'); ok('bad token invalid', r.v.result === 'invalid')
-r = await rpc('solo', 'verify_checkpoint', tok); ok('token valid for unlocked Q1 (solo)', r.v.result === 'valid', JSON.stringify(r.v).slice(0, 200))
-r = await rpc('solo', 'verify_checkpoint', tok); ok('replay -> already_processed', r.v.result === 'already_processed')
-await rpc('admin', 'admin_generate_token', 1)
-r = await rpc('p1', 'verify_checkpoint', tok); ok('old token dead after regenerate', r.v.result === 'invalid')
+// ---- window
+await db.exec(`update public.gameplay_settings set override_mode = 'closed'`)
+r = await rpc('p1', 'get_mission_state'); ok('closed window blocks reading', !r.ok && /gameplay_closed/.test(r.err))
+r = await rpc('p1', 'submit_answer', 2, 'B'); ok('closed window blocks answering', !r.ok && /gameplay_closed/.test(r.err))
+await db.exec(`update public.gameplay_settings set override_mode = null`)
+r = await rpc('p1', 'get_mission_state'); ok('schedule applies when the override is cleared (locked before 24 Oct 2026 08:30 IST)', !r.ok, r.err)
+await db.exec(`update public.gameplay_settings set override_mode = 'open'`)
 
-// ---- progression modes
-await rpc('admin', 'admin_save_settings', { progressionMode: 'answer_and_approval' })
-r = await rpc('p1', 'get_mission_state'); ok('answer_and_approval: Q2 locked until organiser approves', r.v.questions[1].status === 'locked', JSON.stringify(r.v.questions[1]) + JSON.stringify((await db.query('select * from public.mission_settings')).rows) + JSON.stringify((await db.query('select * from public.component_recoveries')).rows))
+// ---- control: teams, leaderboard data, timers
 const tid = (await db.query(`select id from public.teams where name='Alpha'`)).rows[0].id
-await rpc('admin', 'admin_approve_recovery', tid, 1)
-r = await rpc('p1', 'get_mission_state'); ok('after approval Q2 unlocked', r.v.questions[1].status === 'available')
-await rpc('admin', 'admin_save_settings', { progressionMode: 'answer', hintReveal: 'organiser_release' })
-r = await rpc('p1', 'get_mission_state'); ok('organiser_release hides hint even when solved', r.v.questions[0].hint.status === 'hidden')
-await rpc('admin', 'admin_release_hint', tid, 1)
-r = await rpc('p1', 'get_mission_state'); ok('released hint shows', r.v.questions[0].hint.status === 'unlocked')
-
-// ---- admin team monitor
 r = await rpc('admin', 'admin_list_teams'); const alpha = r.v.find((t) => t.name === 'Alpha')
-ok('admin sees members/emails/progress', alpha.members.length === 4 && alpha.solvedCount === 1 && alpha.currentIndex === 2 && alpha.members[0].email, JSON.stringify(alpha).slice(0, 300))
-r = await rpc('admin', 'admin_list_attempts', 50, null); ok('admin attempt feed', r.v.length >= 2 && r.v[0].teamName)
+ok('organiser sees teams with member names and progress', r.v.length === 2 && alpha.members.length === 4 && alpha.solvedCount === 1 && alpha.lastSolvedAt, JSON.stringify(alpha).slice(0, 300))
+ok('team list leaks no emails or join codes', !/@x\.com|joinCode/.test(JSON.stringify(r.v)))
+r = await rpc('p1', 'get_my_timer'); ok('no timer yet', r.v.status === 'none')
+r = await rpc('admin', 'admin_set_timer', null, 10); ok('set a 10 min timer for every team', r.ok, r.err)
+r = await rpc('p1', 'get_my_timer'); ok('team sees idle timer with full duration', r.v.status === 'idle' && r.v.remainingMs === 600000, JSON.stringify(r.v))
+r = await rpc('admin', 'admin_set_timer', tid, 0); ok('zero minutes rejected', !r.ok && /invalid/.test(r.err))
+await rpc('admin', 'admin_start_timer', tid)
+r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting down', r.v.status === 'running' && r.v.remainingMs <= 600000 && r.v.remainingMs > 590000, JSON.stringify(r.v))
+r = await rpc('solo', 'get_my_timer'); ok('start for one team leaves the other idle', r.v.status === 'idle')
+await db.exec(`update public.team_timers set deadline_at = now() + interval '5 minutes' where team_id = '${tid}'`)
+await rpc('admin', 'admin_stop_timer', tid)
+r = await rpc('p1', 'get_my_timer'); const frozen = r.v
+ok('stop freezes the remaining time', frozen.status === 'stopped' && frozen.remainingMs > 295000 && frozen.remainingMs <= 300000, JSON.stringify(frozen))
+await rpc('admin', 'admin_start_timer', tid)
+r = await rpc('p1', 'get_my_timer'); ok('start again resumes from the frozen time', r.v.status === 'running' && r.v.remainingMs <= frozen.remainingMs)
+await db.exec(`update public.team_timers set deadline_at = now() - interval '1 second' where team_id = '${tid}'`)
+r = await rpc('p1', 'get_my_timer'); ok('a timer that ran out reads as finished', r.v.status === 'finished' && r.v.remainingMs === 0)
+await rpc('admin', 'admin_start_timer', null); await rpc('admin', 'admin_stop_timer', null)
+r = await rpc('solo', 'get_my_timer'); ok('start/stop with no team applies to every team', r.v.status === 'stopped')
+r = await rpc('admin', 'admin_list_teams'); ok('organiser list carries each timer', r.v.every((t) => t.timer && t.timer.status))
+r = await as('p1', `select public.admin_set_timer(null, 5)`); ok('player cannot touch timers', !r.ok && /forbidden/.test(r.err))
+r = await rpc('admin', 'get_mission_state'); ok('an organiser has no team, so no mission', !r.ok && /no_team/.test(r.err))
 
-// ---- gameplay window
-await rpc('admin', 'admin_save_gameplay', { overrideMode: 'closed' })
-r = await rpc('p1', 'get_mission_state'); ok('closed window blocks gameplay', !r.ok && /gameplay_closed/.test(r.err), r.err)
-r = await rpc('p1', 'submit_answer', 2, 'B'); ok('closed window blocks submit', !r.ok && /gameplay_closed/.test(r.err))
-await rpc('admin', 'admin_save_gameplay', { overrideMode: '' })
-r = await rpc('p1', 'get_mission_state'); ok('after clearing override, schedule applies (locked before 24 Oct 2026 08:30 IST)', !r.ok, r.err)
-await rpc('admin', 'admin_save_gameplay', { overrideMode: 'open' })
-
-// ---- results
-r = await rpc('admin', 'admin_save_score', tid, 1, 101); ok('score above max rejected', !r.ok && /out_of_range/.test(r.err))
-r = await rpc('admin', 'admin_save_score', tid, 1, 80); ok('score saved', r.ok)
-r = await rpc('p1', 'get_my_progress'); ok('scores hidden until published', r.v.published === false && r.v.scores === null)
-await rpc('admin', 'admin_decide_qualification', tid, 'qualified'); await rpc('admin', 'admin_publish_results', true)
-r = await rpc('p1', 'get_my_progress'); ok('published scores + decision visible to own team', r.v.scores['1'] == 80 && r.v.decision === 'qualified', JSON.stringify(r.v))
-
-// ---- announcements
-r = await rpc('admin', 'admin_save_announcement', { title: 'Hi', body: 'There', kind: 'safety' }); ok('announce', r.ok, r.err)
-r = await rpc('p1', 'list_announcements'); ok('players read announcements', r.v.length === 1)
-r = await rpc('p1', 'admin_save_announcement', { title: 'x', body: 'y' }); ok('player cannot announce', !r.ok)
-
-// ---- admin cannot use player RPCs as a team
-r = await rpc('admin', 'get_mission_state'); ok('admin has no team -> no mission', !r.ok && /no_team/.test(r.err))
-
-// ---- leave / delete
+// ---- leaving
 r = await rpc('p4', 'leave_team'); ok('member leaves', r.v.ok)
-r = await rpc('admin', 'admin_remove_member', U.p3); r = await rpc('admin', 'admin_audit', 10); ok('audit log written', r.v.length > 3 && r.v[0].actor)
-await rpc('admin', 'admin_reset_team', tid); r = await rpc('p1', 'get_mission_state'); ok('reset team clears progress', r.v.solvedCount === 0)
-r = await rpc('admin', 'admin_delete_team', tid); r = await rpc('p1', 'get_my_profile'); ok('deleted team -> member has no team', r.v.team === null)
-
 console.log(`\n${pass} passed, ${fail} failed`)
+
+// ---- upgrading a database that still has the old, larger schema must work too
+const old = new PGlite({ extensions: { pgcrypto } })
+await old.exec(`
+  create schema auth; create schema extensions;
+  create role anon nologin; create role authenticated nologin; create role service_role nologin;
+  grant usage on schema auth, extensions to anon, authenticated;
+  create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}');
+  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
+`)
+const bak = process.env.OLD_SCHEMA
+if (bak) {
+  await old.exec(fs.readFileSync(bak, 'utf8'))
+  await old.exec(sql)
+  const left = (await old.query(`select count(*)::int c from information_schema.tables where table_schema='public' and table_name in ('announcements','round_scores','qualification_settings')`)).rows[0].c
+  const fns = (await old.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'admin\\_%' and p.proname not in ('admin_list_teams','admin_set_timer','admin_start_timer','admin_stop_timer')`)).rows[0].c
+  ok('upgrade from the old schema drops removed tables and functions', left === 0 && fns === 0, `tables ${left}, functions ${fns}`)
+}
 process.exit(fail ? 1 : 0)

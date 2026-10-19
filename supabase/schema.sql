@@ -138,35 +138,7 @@ create table if not exists public.component_recoveries (
   primary key (team_id, idx)
 );
 
-create table if not exists public.announcements (
-  id uuid primary key default gen_random_uuid(),
-  title text not null check (char_length(btrim(title)) between 1 and 120),
-  body text not null check (char_length(btrim(body)) between 1 and 1000),
-  kind text not null default 'info' check (kind in ('info', 'schedule', 'safety')),
-  created_by uuid references auth.users(id) on delete set null,
-  created_at timestamptz not null default now()
-);
 
--- Official rounds (names and maxima are fixed: 100 + 150 + 200 + 150 + 300 = 900).
-create table if not exists public.round_scores (
-  team_id uuid not null references public.teams(id) on delete cascade,
-  round int not null check (round between 1 and 5),
-  points numeric not null check (points >= 0),
-  primary key (team_id, round)
-);
-create table if not exists public.qualification_settings (
-  id boolean primary key default true check (id),
-  criteria text not null default '',
-  slots int check (slots is null or slots > 0),
-  cutoff numeric check (cutoff is null or cutoff >= 0),
-  tie_breaker text check (tie_breaker in ('final_score', 'total_time', 'short_puzzle')),
-  published boolean not null default false
-);
-insert into public.qualification_settings default values on conflict (id) do nothing;
-create table if not exists public.qualification_decisions (
-  team_id uuid primary key references public.teams(id) on delete cascade,
-  decision text not null check (decision in ('qualified', 'not_qualified'))
-);
 
 create table if not exists public.user_briefing (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -183,6 +155,15 @@ create table if not exists public.audit_log (
 );
 create index if not exists audit_log_at_idx on public.audit_log (at desc);
 
+-- One timer per team, set / started / stopped by organisers. Display only: it does not block answers.
+create table if not exists public.team_timers (
+  team_id uuid primary key references public.teams(id) on delete cascade,
+  duration_ms bigint not null check (duration_ms > 0),
+  status text not null default 'idle' check (status in ('idle', 'running', 'stopped')),
+  deadline_at timestamptz,                       -- while running
+  remaining_ms bigint not null default 0         -- while idle / stopped
+);
+
 -- RLS on, NO policies: only the SECURITY DEFINER functions below can touch these tables.
 alter table public.teams enable row level security;
 alter table public.profiles enable row level security;
@@ -196,12 +177,9 @@ alter table public.components enable row level security;
 alter table public.team_progress enable row level security;
 alter table public.team_attempts enable row level security;
 alter table public.component_recoveries enable row level security;
-alter table public.announcements enable row level security;
-alter table public.round_scores enable row level security;
-alter table public.qualification_settings enable row level security;
-alter table public.qualification_decisions enable row level security;
 alter table public.user_briefing enable row level security;
 alter table public.audit_log enable row level security;
+alter table public.team_timers enable row level security;
 
 -- ===================================== SIGN-UP TRIGGER =====================================
 -- Every new auth user gets a 'team' (player) profile. The role is NEVER read from user-supplied metadata.
@@ -514,40 +492,6 @@ begin
                    from public.team_attempts a left join public.profiles p on p.id = a.user_id where a.team_id = t), '[]'::jsonb);
 end $$;
 
-create or replace function public.verify_checkpoint(p_token text) returns jsonb
-language plpgsql security definer set search_path = public, extensions as $$
-declare t uuid := public._need_team(); c public.components; h text; v_tok text := btrim(coalesce(p_token, ''));
-begin
-  perform public._assert_open();
-  if char_length(v_tok) = 0 or char_length(v_tok) > 200 then return jsonb_build_object('result', 'invalid'); end if;
-  h := encode(digest(v_tok, 'sha256'), 'hex');
-  select * into c from public.components where token_hash = h and method = 'qr' and active;
-  if not found then return jsonb_build_object('result', 'invalid'); end if;
-  if not public._question_unlocked(t, c.idx) then return jsonb_build_object('result', 'wrong_stage'); end if;
-  insert into public.component_recoveries (team_id, idx, via, recovered_by) values (t, c.idx, 'qr', auth.uid()) on conflict do nothing;
-  if not found then return jsonb_build_object('result', 'already_processed'); end if;
-  return jsonb_build_object('result', 'valid', 'questionIndex', c.idx, 'state', public.get_mission_state());
-end $$;
-
-create or replace function public.list_announcements() returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_team();
-  return coalesce((select jsonb_agg(jsonb_build_object('id', a.id, 'title', a.title, 'body', a.body, 'kind', a.kind, 'at', a.created_at) order by a.created_at desc)
-                   from public.announcements a), '[]'::jsonb);
-end $$;
-
-create or replace function public.get_my_progress() returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare t uuid := public._need_team(); q public.qualification_settings;
-begin
-  select * into q from public.qualification_settings;
-  return jsonb_build_object('published', q.published,
-    'scores', case when q.published then coalesce((select jsonb_object_agg(round::text, points) from public.round_scores where team_id = t), '{}'::jsonb) end,
-    'decision', case when q.published then (select decision from public.qualification_decisions where team_id = t) end,
-    'criteriaConfigured', (q.criteria <> '' or q.slots is not null or q.cutoff is not null));
-end $$;
-
 -- Mission briefing completion (per player). Presentation state only: never starts a timer or unlocks anything.
 create or replace function public.get_briefing_status() returns jsonb
 language sql security definer set search_path = public as $$
@@ -564,355 +508,111 @@ begin
   return jsonb_build_object('completed', true, 'completedAt', at);
 end $$;
 
--- ===================================== ADMIN (each function re-checks is_admin()) =====================================
+-- ===================================== TIMERS =====================================
 
-create or replace function public.admin_stats() returns jsonb
+create or replace function public._timer_json(p_team uuid) returns jsonb
+language sql security definer set search_path = public as $$
+  select coalesce((
+    select jsonb_build_object(
+      'status', case when t.status = 'running' and t.deadline_at <= now() then 'finished' else t.status end,
+      'durationMs', t.duration_ms,
+      'remainingMs', case when t.status = 'running' then greatest(0, (extract(epoch from (t.deadline_at - now())) * 1000)::bigint) else t.remaining_ms end,
+      'serverNow', now())
+    from public.team_timers t where t.team_id = p_team),
+    jsonb_build_object('status', 'none', 'serverNow', now()))
+$$;
+
+-- The team's own timer (shown on the dashboard).
+create or replace function public.get_my_timer() returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  return public._timer_json(public._need_team());
+end $$;
+
+-- p_team = null means EVERY team. Setting a timer resets it to idle with the full duration.
+create or replace function public.admin_set_timer(p_team uuid, p_minutes numeric) returns void
+language plpgsql security definer set search_path = public as $$
+declare ms bigint;
+begin
+  perform public._need_admin();
+  if p_minutes is null or p_minutes <= 0 or p_minutes > 600 then raise exception 'invalid' using errcode = 'P0001'; end if;
+  ms := round(p_minutes * 60000);
+  insert into public.team_timers (team_id, duration_ms, status, deadline_at, remaining_ms)
+  select t.id, ms, 'idle', null, ms from public.teams t where p_team is null or t.id = p_team
+  on conflict (team_id) do update set duration_ms = excluded.duration_ms, status = 'idle', deadline_at = null, remaining_ms = excluded.remaining_ms;
+  perform public._audit('timer_set', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || p_minutes || ' min');
+end $$;
+
+create or replace function public.admin_start_timer(p_team uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform public._need_admin();
-  return jsonb_build_object(
-    'players', (select count(*) from public.profiles where role = 'team'),
-    'playersWithoutTeam', (select count(*) from public.profiles where role = 'team' and team_id is null),
-    'teams', (select count(*) from public.teams),
-    'attemptsLastHour', (select count(*) from public.team_attempts where submitted_at > now() - interval '1 hour'),
-    'state', public.gameplay_state(), 'serverNow', now());
+  update public.team_timers set status = 'running', deadline_at = now() + (remaining_ms || ' milliseconds')::interval
+  where status in ('idle', 'stopped') and remaining_ms > 0 and (p_team is null or team_id = p_team);
+  perform public._audit('timer_started', coalesce((select code from public.teams where id = p_team), 'all teams'));
 end $$;
+
+create or replace function public.admin_stop_timer(p_team uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  update public.team_timers set status = 'stopped', remaining_ms = greatest(0, (extract(epoch from (deadline_at - now())) * 1000)::bigint), deadline_at = null
+  where status = 'running' and (p_team is null or team_id = p_team);
+  perform public._audit('timer_stopped', coalesce((select code from public.teams where id = p_team), 'all teams'));
+end $$;
+
+-- ===================================== CONTROL (the organiser console) =====================================
+-- One function feeds all three tabs: Teams, Leaderboard, Timer. Organisers need nothing else.
 
 create or replace function public.admin_list_teams() returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare out jsonb;
 begin
   perform public._need_admin();
-  select coalesce(jsonb_agg(x order by x ->> 'code'), '[]'::jsonb) into out from (
+  return coalesce((select jsonb_agg(x order by x ->> 'code') from (
     select jsonb_build_object(
-      'id', t.id, 'code', t.code, 'name', t.name, 'college', t.college, 'joinCode', t.join_code, 'createdAt', t.created_at,
-      'members', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'name', p.display_name, 'email', u.email) order by p.created_at)
-                           from public.profiles p join auth.users u on u.id = p.id where p.team_id = t.id), '[]'::jsonb),
+      'id', t.id, 'code', t.code, 'name', t.name, 'college', t.college, 'createdAt', t.created_at,
+      'members', coalesce((select jsonb_agg(jsonb_build_object('name', coalesce(nullif(p.display_name, ''), 'Member')) order by p.created_at)
+                           from public.profiles p where p.team_id = t.id), '[]'::jsonb),
       'solvedCount', (select count(*) from public.team_progress where team_id = t.id and solved_at is not null),
-      'attempts', (select count(*) from public.team_attempts where team_id = t.id),
-      'lastActivity', (select max(submitted_at) from public.team_attempts where team_id = t.id),
-      'currentIndex', (select min(g) from generate_series(1, 4) g
-                       where public._question_unlocked(t.id, g)
-                         and not exists (select 1 from public.team_progress where team_id = t.id and idx = g and solved_at is not null)),
-      'complete', (select bool_and(public._question_cleared(t.id, g) and exists (select 1 from public.team_progress where team_id = t.id and idx = g and solved_at is not null))
-                   from generate_series(1, 4) g),
-      'questions', (select jsonb_agg(jsonb_build_object(
-          'index', g, 'unlocked', public._question_unlocked(t.id, g),
-          'solved', exists (select 1 from public.team_progress where team_id = t.id and idx = g and solved_at is not null),
-          'attempts', (select count(*) from public.team_attempts where team_id = t.id and idx = g),
-          'recovered', exists (select 1 from public.component_recoveries where team_id = t.id and idx = g),
-          'via', (select via from public.component_recoveries where team_id = t.id and idx = g),
-          'hintReleased', coalesce((select hint_released from public.team_progress where team_id = t.id and idx = g), false)) order by g)
-        from generate_series(1, 4) g)
-    ) as x from public.teams t) s;
-  return out;
+      'lastSolvedAt', (select max(solved_at) from public.team_progress where team_id = t.id and solved_at is not null),
+      'timer', public._timer_json(t.id)
+    ) as x from public.teams t) s), '[]'::jsonb);
 end $$;
 
-create or replace function public.admin_approve_recovery(p_team uuid, p_index int) returns void
+-- ===================================== AUTHORING HELPER (SQL editor only) =====================================
+-- Not callable from a browser (no grants). Use it in the Supabase SQL editor to write a question; answers are hashed on the way in.
+--   select public.set_question(2, 'Title', 'Question text', array['answer one', 'answer two'], 'Hint shown once solved');
+create or replace function public.set_question(p_idx int, p_title text, p_body text, p_answers text[], p_hint text default '',
+                                               p_active boolean default true, p_type text default 'text', p_options jsonb default '[]',
+                                               p_attempts int default null, p_case_sensitive boolean default false) returns void
 language plpgsql security definer set search_path = public as $$
+declare v_salt text := gen_random_uuid()::text; a text; hs text[] := '{}'; hcs text[] := '{}';
 begin
-  perform public._need_admin();
-  if not exists (select 1 from public.teams where id = p_team) then raise exception 'not_found' using errcode = 'P0001'; end if;
-  insert into public.component_recoveries (team_id, idx, via, recovered_by) values (p_team, p_index, 'organiser', auth.uid())
-  on conflict (team_id, idx) do update set via = 'organiser', recovered_by = auth.uid(), recovered_at = now();
-  perform public._audit('recovery_approved', (select code from public.teams where id = p_team) || ' Q' || p_index);
-end $$;
-
-create or replace function public.admin_release_hint(p_team uuid, p_index int) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  if not exists (select 1 from public.teams where id = p_team) then raise exception 'not_found' using errcode = 'P0001'; end if;
-  insert into public.team_progress (team_id, idx, hint_released) values (p_team, p_index, true)
-  on conflict (team_id, idx) do update set hint_released = true;
-  perform public._audit('hint_released', (select code from public.teams where id = p_team) || ' Q' || p_index);
-end $$;
-
-create or replace function public.admin_reset_team(p_team uuid) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  delete from public.team_progress where team_id = p_team;
-  delete from public.team_attempts where team_id = p_team;
-  delete from public.component_recoveries where team_id = p_team;
-  perform public._audit('team_progress_reset', coalesce((select code from public.teams where id = p_team), p_team::text));
-end $$;
-
-create or replace function public.admin_remove_member(p_user uuid) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.profiles set team_id = null where id = p_user and role = 'team';
-  perform public._audit('member_removed', coalesce((select email from auth.users where id = p_user), p_user::text));
-end $$;
-
-create or replace function public.admin_delete_team(p_team uuid) returns void
-language plpgsql security definer set search_path = public as $$
-declare v_code text;
-begin
-  perform public._need_admin();
-  select code into v_code from public.teams where id = p_team;
-  delete from public.teams where id = p_team;
-  perform public._audit('team_deleted', coalesce(v_code, p_team::text));
-end $$;
-
-create or replace function public.admin_get_settings() returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare s public.mission_settings;
-begin
-  perform public._need_admin();
-  select * into s from public.mission_settings;
-  return jsonb_build_object('progressionMode', s.progression_mode, 'hintReveal', s.hint_reveal);
-end $$;
-
-create or replace function public.admin_save_settings(p_settings jsonb) returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.mission_settings set
-    progression_mode = coalesce(p_settings ->> 'progressionMode', progression_mode),
-    hint_reveal = coalesce(p_settings ->> 'hintReveal', hint_reveal);
-  perform public._audit('settings_changed', p_settings::text);
-  return public.admin_get_settings();
-end $$;
-
-create or replace function public.admin_get_gameplay() returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare g public.gameplay_settings;
-begin
-  perform public._need_admin();
-  select * into g from public.gameplay_settings;
-  return jsonb_build_object('enabled', g.enabled, 'startsAt', g.starts_at, 'endsAt', g.ends_at, 'overrideMode', g.override_mode,
-    'overrideUntil', g.override_until, 'confirmed', g.confirmed, 'state', public.gameplay_state(), 'serverNow', now());
-end $$;
-
-create or replace function public.admin_save_gameplay(p_g jsonb) returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.gameplay_settings set
-    enabled = coalesce((p_g ->> 'enabled')::boolean, enabled),
-    starts_at = case when p_g ? 'startsAt' then nullif(p_g ->> 'startsAt', '')::timestamptz else starts_at end,
-    ends_at = case when p_g ? 'endsAt' then nullif(p_g ->> 'endsAt', '')::timestamptz else ends_at end,
-    override_mode = case when p_g ? 'overrideMode' then nullif(p_g ->> 'overrideMode', '') else override_mode end,
-    override_until = case when p_g ? 'overrideUntil' then nullif(p_g ->> 'overrideUntil', '')::timestamptz else override_until end,
-    confirmed = coalesce((p_g ->> 'confirmed')::boolean, confirmed);
-  perform public._audit('gameplay_window_changed', p_g::text);
-  return public.admin_get_gameplay();
-end $$;
-
--- Questions as organisers see them. Accepted answers are NOT returned (they are only hashes); only how many are set.
-create or replace function public.admin_list_questions() returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  return (select jsonb_agg(jsonb_build_object(
-      'index', q.idx, 'active', q.active, 'title', q.title, 'body', q.body, 'type', q.type, 'options', q.options,
-      'caseSensitive', q.case_sensitive, 'attemptsAllowed', q.attempts_allowed,
-      'answerCount', coalesce(array_length(s.answer_hashes, 1), 0),
-      'hintText', h.hint_text,
-      'component', jsonb_build_object('code', c.component_code, 'locationNote', c.location_note, 'method', c.method,
-                                      'requiredForProgression', c.required_for_progression, 'active', c.active, 'tokenSet', c.token_hash is not null)
-    ) order by q.idx)
-    from public.questions q
-    join public.question_secrets s on s.idx = q.idx join public.question_hints h on h.idx = q.idx join public.components c on c.idx = q.idx);
-end $$;
-
--- p_q keys (all optional): active, title, body, type, options[], caseSensitive, attemptsAllowed, hintText,
---   acceptedAnswers[] (REPLACES the stored answers when non-empty), component{code, locationNote, method, requiredForProgression, active}
-create or replace function public.admin_save_question(p_index int, p_q jsonb) returns void
-language plpgsql security definer set search_path = public, extensions as $$
-declare q public.questions; v_type text; v_opts jsonb; v_cs boolean; v_active boolean; v_salt text; a text; hs text[] := '{}'; hcs text[] := '{}';
-        n_answers int; comp jsonb := coalesce(p_q -> 'component', '{}'::jsonb);
-begin
-  perform public._need_admin();
-  select * into q from public.questions where idx = p_index;
-  if not found then raise exception 'not_found' using errcode = 'P0001'; end if;
-  v_type := coalesce(p_q ->> 'type', q.type);
-  if v_type not in ('text', 'choice') then raise exception 'invalid' using errcode = 'P0001'; end if;
-  v_opts := coalesce(p_q -> 'options', q.options);
-  if jsonb_typeof(v_opts) <> 'array' then raise exception 'invalid' using errcode = 'P0001'; end if;
-  if v_type = 'choice' and jsonb_array_length(v_opts) < 2 then raise exception 'options_required' using errcode = 'P0001'; end if;
-  v_cs := coalesce((p_q ->> 'caseSensitive')::boolean, q.case_sensitive);
-  v_active := coalesce((p_q ->> 'active')::boolean, q.active);
-
-  if jsonb_typeof(p_q -> 'acceptedAnswers') = 'array' and jsonb_array_length(p_q -> 'acceptedAnswers') > 0 then
-    v_salt := gen_random_uuid()::text;
-    for a in select jsonb_array_elements_text(p_q -> 'acceptedAnswers') loop
-      if btrim(a) <> '' then
-        hs := hs || public._answer_hash(v_salt, public._norm_answer(a, false));
-        hcs := hcs || public._answer_hash(v_salt, public._norm_answer(a, true));
-      end if;
-    end loop;
-    if array_length(hs, 1) is null then raise exception 'invalid' using errcode = 'P0001'; end if;
-    update public.question_secrets set salt = v_salt, answer_hashes = hs, answer_hashes_cs = hcs where idx = p_index;
+  if not exists (select 1 from public.questions where idx = p_idx) then raise exception 'no such question %', p_idx; end if;
+  foreach a in array coalesce(p_answers, '{}') loop
+    if btrim(a) <> '' then
+      hs := hs || public._answer_hash(v_salt, public._norm_answer(a, false));
+      hcs := hcs || public._answer_hash(v_salt, public._norm_answer(a, true));
+    end if;
+  end loop;
+  if p_active and coalesce(array_length(hs, 1), 0) = 0 then raise exception 'an active question needs at least one answer'; end if;
+  update public.questions set title = p_title, body = p_body, active = p_active, type = p_type, options = p_options,
+    attempts_allowed = p_attempts, case_sensitive = p_case_sensitive where idx = p_idx;
+  if coalesce(array_length(hs, 1), 0) > 0 then
+    update public.question_secrets set salt = v_salt, answer_hashes = hs, answer_hashes_cs = hcs where idx = p_idx;
   end if;
-
-  select coalesce(array_length(answer_hashes, 1), 0) into n_answers from public.question_secrets where idx = p_index;
-  if v_active and n_answers = 0 then raise exception 'answers_required' using errcode = 'P0001'; end if;
-
-  update public.questions set
-    active = v_active, type = v_type, options = v_opts, case_sensitive = v_cs,
-    title = left(coalesce(p_q ->> 'title', title), 200), body = left(coalesce(p_q ->> 'body', body), 5000),
-    attempts_allowed = case when p_q ? 'attemptsAllowed' then nullif(p_q ->> 'attemptsAllowed', '')::int else attempts_allowed end
-  where idx = p_index;
-  if p_q ? 'hintText' then update public.question_hints set hint_text = left(coalesce(p_q ->> 'hintText', ''), 2000) where idx = p_index; end if;
-  update public.components set
-    component_code = left(coalesce(comp ->> 'code', component_code), 60),
-    location_note = left(coalesce(comp ->> 'locationNote', location_note), 500),
-    method = coalesce(comp ->> 'method', method),
-    required_for_progression = coalesce((comp ->> 'requiredForProgression')::boolean, required_for_progression),
-    active = coalesce((comp ->> 'active')::boolean, active)
-  where idx = p_index;
-  perform public._audit('question_saved', 'Q' || p_index || case when jsonb_typeof(p_q -> 'acceptedAnswers') = 'array' and jsonb_array_length(p_q -> 'acceptedAnswers') > 0 then ' (answers replaced)' else '' end);
+  update public.question_hints set hint_text = coalesce(p_hint, '') where idx = p_idx;
 end $$;
 
--- Lets an organiser check an answer WITHOUT ever revealing the stored ones.
-create or replace function public.admin_check_answer(p_index int, p_answer text) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare q public.questions; sec public.question_secrets;
-begin
-  perform public._need_admin();
-  select * into q from public.questions where idx = p_index;
-  select * into sec from public.question_secrets where idx = p_index;
-  if q is null or sec is null then return false; end if;
-  return case when q.case_sensitive
-           then public._answer_hash(sec.salt, public._norm_answer(p_answer, true)) = any (sec.answer_hashes_cs)
-           else public._answer_hash(sec.salt, public._norm_answer(p_answer, false)) = any (sec.answer_hashes) end;
-end $$;
-
--- Creates a NEW random QR token for question p_index and returns it ONCE. Only its hash is stored; the old token stops working.
-create or replace function public.admin_generate_token(p_index int) returns text
-language plpgsql security definer set search_path = public, extensions as $$
-declare tok text := 'RAS' || encode(gen_random_bytes(16), 'hex');
-begin
-  perform public._need_admin();
-  update public.components set token_hash = encode(digest(tok, 'sha256'), 'hex') where idx = p_index;
-  if not found then raise exception 'not_found' using errcode = 'P0001'; end if;
-  perform public._audit('checkpoint_token_generated', 'Q' || p_index);
-  return tok;
-end $$;
-
-create or replace function public.admin_revoke_token(p_index int) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.components set token_hash = null where idx = p_index;
-  perform public._audit('checkpoint_token_revoked', 'Q' || p_index);
-end $$;
-
-create or replace function public.admin_list_attempts(p_limit int default 100, p_team uuid default null) returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  return coalesce((select jsonb_agg(r order by r ->> 'at' desc) from (
-    select jsonb_build_object('id', a.id, 'at', a.submitted_at, 'teamId', a.team_id, 'teamCode', t.code, 'teamName', t.name, 'questionIndex', a.idx,
-             'answer', a.answer, 'result', a.result, 'by', coalesce(nullif(p.display_name, ''), u.email)) as r
-    from public.team_attempts a
-    join public.teams t on t.id = a.team_id
-    left join public.profiles p on p.id = a.user_id left join auth.users u on u.id = a.user_id
-    where p_team is null or a.team_id = p_team
-    order by a.submitted_at desc limit greatest(1, least(coalesce(p_limit, 100), 1000))) s), '[]'::jsonb);
-end $$;
-
-create or replace function public.admin_audit(p_limit int default 300) returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  return coalesce((select jsonb_agg(jsonb_build_object('at', l.at, 'actor', l.actor_label, 'action', l.action, 'detail', l.detail) order by l.at desc)
-                   from (select * from public.audit_log order by at desc limit greatest(1, least(coalesce(p_limit, 300), 2000))) l), '[]'::jsonb);
-end $$;
-
-create or replace function public.admin_list_announcements() returns jsonb
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  return coalesce((select jsonb_agg(jsonb_build_object('id', a.id, 'title', a.title, 'body', a.body, 'kind', a.kind, 'at', a.created_at) order by a.created_at desc)
-                   from public.announcements a), '[]'::jsonb);
-end $$;
-
-create or replace function public.admin_save_announcement(p_a jsonb) returns void
-language plpgsql security definer set search_path = public as $$
-declare v_title text := btrim(coalesce(p_a ->> 'title', '')); v_body text := btrim(coalesce(p_a ->> 'body', '')); v_kind text := coalesce(nullif(p_a ->> 'kind', ''), 'info');
-begin
-  perform public._need_admin();
-  if v_title = '' or v_body = '' or v_kind not in ('info', 'schedule', 'safety') then raise exception 'invalid' using errcode = 'P0001'; end if;
-  insert into public.announcements (title, body, kind, created_by) values (left(v_title, 120), left(v_body, 1000), v_kind, auth.uid());
-  perform public._audit('announcement_published', left(v_title, 120));
-end $$;
-
-create or replace function public.admin_retract_announcement(p_id uuid) returns void
-language plpgsql security definer set search_path = public as $$
-declare v_title text;
-begin
-  perform public._need_admin();
-  delete from public.announcements where id = p_id returning title into v_title;
-  perform public._audit('announcement_retracted', coalesce(v_title, p_id::text));
-end $$;
-
-create or replace function public._round_max(p int) returns int language sql immutable as
-$$ select case p when 1 then 100 when 2 then 150 when 3 then 200 when 4 then 150 when 5 then 300 end $$;
-
-create or replace function public.admin_get_results() returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare q public.qualification_settings;
-begin
-  perform public._need_admin();
-  select * into q from public.qualification_settings;
-  return jsonb_build_object(
-    'qualification', jsonb_build_object('criteria', q.criteria, 'slots', q.slots, 'cutoff', q.cutoff, 'tieBreaker', q.tie_breaker, 'published', q.published),
-    'teams', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name,
-        'scores', coalesce((select jsonb_object_agg(s.round::text, s.points) from public.round_scores s where s.team_id = t.id), '{}'::jsonb),
-        'decision', coalesce((select decision from public.qualification_decisions d where d.team_id = t.id), 'pending')) order by t.code)
-      from public.teams t), '[]'::jsonb));
-end $$;
-
-create or replace function public.admin_save_score(p_team uuid, p_round int, p_value numeric) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  if p_round is null or p_round not between 1 and 5 then raise exception 'invalid' using errcode = 'P0001'; end if;
-  if p_value is null then
-    delete from public.round_scores where team_id = p_team and round = p_round;
-  else
-    if p_value < 0 or p_value > public._round_max(p_round) then raise exception 'out_of_range' using errcode = 'P0001'; end if;
-    insert into public.round_scores (team_id, round, points) values (p_team, p_round, p_value)
-    on conflict (team_id, round) do update set points = excluded.points;
-  end if;
-  perform public._audit('score_recorded', coalesce((select code from public.teams where id = p_team), p_team::text) || ' round ' || p_round || ': ' || coalesce(p_value::text, 'cleared'));
-end $$;
-
-create or replace function public.admin_save_qualification(p_q jsonb) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.qualification_settings set
-    criteria = left(coalesce(p_q ->> 'criteria', criteria), 2000),
-    slots = case when p_q ? 'slots' then nullif(p_q ->> 'slots', '')::int else slots end,
-    cutoff = case when p_q ? 'cutoff' then nullif(p_q ->> 'cutoff', '')::numeric else cutoff end,
-    tie_breaker = case when p_q ? 'tieBreaker' then nullif(p_q ->> 'tieBreaker', '') else tie_breaker end;
-  perform public._audit('qualification_criteria_saved', p_q::text);
-end $$;
-
-create or replace function public.admin_decide_qualification(p_team uuid, p_decision text) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  if p_decision = 'pending' then delete from public.qualification_decisions where team_id = p_team;
-  elsif p_decision in ('qualified', 'not_qualified') then
-    insert into public.qualification_decisions (team_id, decision) values (p_team, p_decision)
-    on conflict (team_id) do update set decision = excluded.decision;
-  else raise exception 'invalid' using errcode = 'P0001'; end if;
-  perform public._audit('qualification_decision', coalesce((select code from public.teams where id = p_team), p_team::text) || ': ' || p_decision);
-end $$;
-
-create or replace function public.admin_publish_results(p_published boolean) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  perform public._need_admin();
-  update public.qualification_settings set published = coalesce(p_published, false);
-  perform public._audit(case when p_published then 'results_published' else 'results_unpublished' end, null);
-end $$;
+-- ===================================== CLEAN-UP of removed features (so re-running upgrades an older database) =====================================
+drop table if exists public.announcements, public.round_scores, public.qualification_decisions, public.qualification_settings cascade;
+drop function if exists public.list_announcements(), public.get_my_progress(), public._round_max(int), public.join_team(text, text), public.verify_checkpoint(text), public.admin_stats(), public.admin_approve_recovery(uuid, int),
+  public.admin_release_hint(uuid, int), public.admin_reset_team(uuid), public.admin_remove_member(uuid), public.admin_delete_team(uuid),
+  public.admin_get_settings(), public.admin_save_settings(jsonb), public.admin_get_gameplay(), public.admin_save_gameplay(jsonb),
+  public.admin_list_questions(), public.admin_save_question(int, jsonb), public.admin_check_answer(int, text), public.admin_generate_token(int),
+  public.admin_revoke_token(int), public.admin_list_attempts(int, uuid), public.admin_audit(int), public.admin_list_announcements(),
+  public.admin_save_announcement(jsonb), public.admin_retract_announcement(uuid), public.admin_get_results(), public.admin_save_score(uuid, int, numeric),
+  public.admin_save_qualification(jsonb), public.admin_decide_qualification(uuid, text), public.admin_publish_results(boolean);
 
 -- ===================================== PERMISSIONS (last, so nothing above can leave a door open) =====================================
 revoke all on all tables in schema public from anon, authenticated;
@@ -927,18 +627,11 @@ grant execute on function public.get_gameplay_status() to anon, authenticated;
 -- Signed-in players
 grant execute on function
   public.get_my_profile(), public.set_display_name(text), public.create_team(text, text, text), public.login_with_code(text, text), public.leave_team(),
-  public.get_mission_state(), public.submit_answer(int, text), public.list_my_submissions(), public.verify_checkpoint(text),
-  public.list_announcements(), public.get_my_progress(), public.get_briefing_status(), public.complete_briefing()
+  public.get_mission_state(), public.submit_answer(int, text), public.list_my_submissions(), public.get_my_timer(),
+  public.get_briefing_status(), public.complete_briefing()
 to authenticated;
 
--- Organisers (every function re-checks is_admin() and raises 'forbidden' for anyone else)
+-- Organisers (each re-checks is_admin() and raises 'forbidden' for anyone else)
 grant execute on function
-  public.admin_stats(), public.admin_list_teams(), public.admin_approve_recovery(uuid, int), public.admin_release_hint(uuid, int),
-  public.admin_reset_team(uuid), public.admin_remove_member(uuid), public.admin_delete_team(uuid),
-  public.admin_get_settings(), public.admin_save_settings(jsonb), public.admin_get_gameplay(), public.admin_save_gameplay(jsonb),
-  public.admin_list_questions(), public.admin_save_question(int, jsonb), public.admin_check_answer(int, text),
-  public.admin_generate_token(int), public.admin_revoke_token(int), public.admin_list_attempts(int, uuid), public.admin_audit(int),
-  public.admin_list_announcements(), public.admin_save_announcement(jsonb), public.admin_retract_announcement(uuid),
-  public.admin_get_results(), public.admin_save_score(uuid, int, numeric), public.admin_save_qualification(jsonb),
-  public.admin_decide_qualification(uuid, text), public.admin_publish_results(boolean)
+  public.admin_list_teams(), public.admin_set_timer(uuid, numeric), public.admin_start_timer(uuid), public.admin_stop_timer(uuid)
 to authenticated;

@@ -11,12 +11,10 @@ export const submitAnswer = (index, answer) => rpc('submit_answer', { p_question
 // -> [{ questionIndex, submittedAt, answer, result, by }]
 export const listMySubmissions = () => rpc('list_my_submissions')
 
-// -> { result: 'valid'|'invalid'|'already_processed'|'wrong_stage', questionIndex?, state? }
-export const verifyCheckpoint = (token) => rpc('verify_checkpoint', { p_token: token })
 
 
-// -> { published, scores, decision, criteriaConfigured }. Scores and decisions stay null until organisers publish them.
-export const getMyProgress = () => rpc('get_my_progress')
+// -> { status: 'none'|'idle'|'running'|'stopped'|'finished', durationMs, remainingMs, serverNow }. Set / started / stopped by organisers.
+export const getMyTimer = () => rpc('get_my_timer')
 
 // -> { completed, completedAt } for the signed-in player. complete_briefing is idempotent.
 export const getBriefingStatus = () => rpc('get_briefing_status')
