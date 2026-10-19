@@ -40,7 +40,7 @@ Roles can only be changed in the SQL editor. A player cannot make themselves an 
 - QR tokens are random 128-bit values; only their hash is stored. Generating a new one kills the old one.
 - Every `admin_*` function re-checks `is_admin()`; a player calling them directly gets `forbidden`.
 
-`npm run test:db` runs `supabase/schema.sql` in an in-memory Postgres and attacks it (78 checks: direct table reads, self-promotion to admin, skipping questions, guessing answers/join codes, calling admin functions as a player, closed window, QR replay, ...).
+`npm run test:db` runs `supabase/schema.sql` in an in-memory Postgres and attacks it (83 checks: direct table reads, self-promotion to admin, skipping questions, guessing answers/join codes, calling admin functions as a player, closed window, QR replay, ...).
 
 ## Layout
 

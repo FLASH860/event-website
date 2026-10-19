@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Button, SectionHead } from '../components/ui'
-import StartPlayingButton from '../components/gate/StartPlayingButton'
-import { EVENT, ROUNDS } from '../config/eventConfig'
+import { EVENT } from '../config/eventConfig'
+import { MISSION } from '../config/mission'
 import { IMAGERY } from '../config/imagery'
 import HeroTitle, { useTitleIntro } from '../components/HeroTitle'
 
@@ -26,7 +26,6 @@ export default function Home() {
           <div className="hero__actions hero__after">
             <Button to="/signup">Create account</Button>
             <Button to="/login" variant="ghost">Log in</Button>
-            <StartPlayingButton variant="ghost" />
           </div>
           <dl className="facts hero__after">
             <div><dt className="mono">Date</dt><dd>{EVENT.dateShort}</dd></div>
@@ -51,22 +50,16 @@ export default function Home() {
 
       <section className="block block--alt" id="rounds">
         <div className="container">
-          <SectionHead kicker="Five rounds" title="The mission, in order" >
-            Proposed maximum of {EVENT.maxPoints} points. Detailed scoring, time limits and qualification cutoffs are announced before each round.
+          <SectionHead kicker="Four missions" title="The mission, in order">
+            Solve each mission's question to unlock the next one.
           </SectionHead>
           <ol className="rounds">
-            {ROUNDS.map((r) => (
-              <li key={r.id} className="round">
-                <span className="round__n mono">{String(r.n).padStart(2, '0')}</span>
-                <div className="round__body"><h3>{r.name}</h3><p>{r.blurb}</p></div>
-                <span className="round__pts mono">{r.points}<small> pts</small></span>
+            {Array.from({ length: MISSION.questionCount }, (_, n) => n + 1).map((n) => (
+              <li key={n} className="round">
+                <span className="round__n mono">{String(n).padStart(2, '0')}</span>
+                <div className="round__body"><h3>Mission {n}</h3><p>{n === 1 ? 'Your first question is open from the start.' : `Unlocks when Mission ${n - 1} is solved.`}</p></div>
               </li>
             ))}
-            <li className="round round--total">
-              <span className="round__n" aria-hidden="true" />
-              <div className="round__body"><h3>Proposed maximum</h3></div>
-              <span className="round__pts mono">{EVENT.maxPoints}<small> pts</small></span>
-            </li>
           </ol>
         </div>
       </section>
@@ -101,7 +94,6 @@ export default function Home() {
           <p className="lede">{EVENT.dateLabel} · {EVENT.time} · {EVENT.venue}</p>
           <div className="hero__actions">
             <Button to="/signup">Create account</Button>
-            <StartPlayingButton variant="ghost" />
           </div>
         </div>
       </section>

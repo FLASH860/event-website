@@ -83,7 +83,9 @@ r = await rpc('p2', 'login_with_code', team.joinCode, ''); ok('empty name reject
 
 // ---- content (admin)
 const ans = ['Blue Whale', 'whale']
-r = await rpc('admin', 'admin_save_question', 1, { active: true, title: 'Q1', body: 'b' }); ok('cannot activate question without answers', !r.ok && /answers_required/.test(r.err), r.err)
+const seededList = await rpc('admin', 'admin_list_questions'), seededOk = await rpc('admin', 'admin_check_answer', 1, 'mission')
+ok('fresh database ships a sample Mission 1 (answer MISSION)', seededList.v[0].active === true && seededOk.v === true, JSON.stringify(seededList.v[0]))
+r = await rpc('admin', 'admin_save_question', 3, { active: true, title: 'Q3', body: 'b' }); ok('cannot activate question without answers', !r.ok && /answers_required/.test(r.err), r.err)
 r = await rpc('admin', 'admin_save_question', 1, { active: true, title: 'Q1', body: 'Largest animal?', type: 'text', acceptedAnswers: ans, hintText: 'Go to the library', component: { code: 'HEAD', locationNote: 'secret place', method: 'qr' } })
 ok('admin saves Q1', r.ok, r.err)
 r = await rpc('admin', 'admin_save_question', 2, { active: true, title: 'Q2', body: 'Pick', type: 'choice', options: ['A', 'B'], acceptedAnswers: ['B'], hintText: 'hint2' }); ok('admin saves Q2 (choice)', r.ok, r.err)

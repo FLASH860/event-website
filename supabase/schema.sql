@@ -311,6 +311,21 @@ language sql security definer set search_path = public as $$
                          from public.profiles p where p.team_id = t.id), '[]'::jsonb))
   from public.teams t where t.id = p_team $$;
 
+-- Sample content so a fresh database has something to play: Mission 1 is a placeholder question (answer: MISSION).
+-- It only fills Question 1 while it is still completely blank, so it never overwrites what you write in the admin console.
+do $$
+declare v_salt text := gen_random_uuid()::text;
+begin
+  if exists (select 1 from public.questions where idx = 1 and title = '' and body = '' and not active) then
+    update public.questions set active = true, title = 'Sample question',
+      body = 'This is a placeholder question. Type MISSION to solve it.' where idx = 1;
+    update public.question_secrets set salt = v_salt,
+      answer_hashes = array[public._answer_hash(v_salt, public._norm_answer('MISSION', false))],
+      answer_hashes_cs = array[public._answer_hash(v_salt, public._norm_answer('MISSION', true))] where idx = 1;
+    update public.question_hints set hint_text = 'Sample hint: this is where the location clue appears once the question is solved.' where idx = 1;
+  end if;
+end $$;
+
 -- ===================================== PUBLIC =====================================
 
 -- Landing page: when does gameplay open? Includes the server clock so devices with wrong clocks still agree.

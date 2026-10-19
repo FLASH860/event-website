@@ -13,7 +13,7 @@ import TeamStrip from '../../components/TeamStrip'
 // Official stage status, robot-component recovery and detailed scores live on the Overview page, not here.
 export default function TeamDashboard() {
   const { user } = useAuth()
-  const { mission, news, briefingActive } = useOutletContext()
+  const { mission, briefingActive } = useOutletContext()
   const [sel, setSel] = useState(null)
   const [prog, setProg] = useState(null)
   const st = mission.state
@@ -25,16 +25,12 @@ export default function TeamDashboard() {
     setSel(ok ? want : st.currentIndex ?? st.questions.filter((q) => q.status !== 'locked').pop()?.index ?? 1)
   }, [st, sel])
 
-  const latest = news.unread[0]
 
   return (
     <>
       <TeamIntro id={user?.id || user?.email} name={user?.team?.name} hold={briefingActive} />
       <TeamStrip />
 
-      {latest && (
-        <p className="newsbar" role="status"><span className="newsbar__dot" aria-hidden="true" /><span className="mono">New announcement</span><strong>{latest.title}</strong><Link className="link" to="/team/announcements">Read</Link></p>
-      )}
 
       {!st && !mission.error && <Loading label="Loading your mission…" />}
       {mission.error === 'not_connected' && <div className="note"><p className="mono muted">Backend not connected</p><p>Add the Supabase keys to <code>.env.local</code> and restart the dev server.</p></div>}
@@ -43,7 +39,7 @@ export default function TeamDashboard() {
       {st && sel != null && (
         <section className="console" aria-label="Digital Transmission">
           <header className="console__head">
-            <p className="mono console__stage"><span>Stage 1 of 5</span> Digital Transmission</p>
+            <p className="mono console__stage"><span>Stage {sel} of {MISSION.questionCount}</span> Digital Transmission</p>
             <p className="mono muted console__count">{st.complete ? 'All 4 solved' : `${st.solvedCount} of ${MISSION.questionCount} solved`}</p>
           </header>
           <div className="console__q">

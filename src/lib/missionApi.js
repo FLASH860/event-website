@@ -14,8 +14,6 @@ export const listMySubmissions = () => rpc('list_my_submissions')
 // -> { result: 'valid'|'invalid'|'already_processed'|'wrong_stage', questionIndex?, state? }
 export const verifyCheckpoint = (token) => rpc('verify_checkpoint', { p_token: token })
 
-// -> [{ id, title, body, kind, at }]
-export const listAnnouncements = () => rpc('list_announcements')
 
 // -> { published, scores, decision, criteriaConfigured }. Scores and decisions stay null until organisers publish them.
 export const getMyProgress = () => rpc('get_my_progress')

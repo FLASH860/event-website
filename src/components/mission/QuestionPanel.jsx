@@ -38,7 +38,7 @@ export default function QuestionPanel({ state, setState, sel, onProceed }) {
   }
 
   if (!q || q.status === 'locked') return (
-    <div className="qp qp--locked"><p className="mono muted">Question {sel} · Locked</p><p>Submit the correct answer to the previous question to unlock this one. Its content is not sent to your device until then.</p></div>)
+    <div className="qp qp--locked"><p className="mono muted">Mission {sel} · Locked</p><p>{sel > 1 && state.questions.find((x) => x.index === sel - 1)?.status === 'solved' ? 'This mission has not been released yet. Check back soon.' : 'Solve the previous question first.'}</p></div>)
 
   return (
     <div className="qp" key={q.index}>

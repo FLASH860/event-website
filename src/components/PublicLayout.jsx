@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import Wordmark from './Wordmark'
-import StartPlayingButton from './gate/StartPlayingButton'
 import { EVENT } from '../config/eventConfig'
 
 export default function PublicLayout() {
@@ -26,7 +25,6 @@ export default function PublicLayout() {
             <NavLink to="/rules">Rules</NavLink>
             <NavLink to="/signup">Create account</NavLink>
             <NavLink to="/login">Log in</NavLink>
-            <span className="nav__play"><StartPlayingButton variant="ghost" size="sm" showStatus={false} /></span>
           </nav>
         </div>
       </header>

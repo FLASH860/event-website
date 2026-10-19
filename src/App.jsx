@@ -12,9 +12,7 @@ import ResetPassword from './pages/ResetPassword'
 import NotFound from './pages/NotFound'
 import GameplayGuard from './components/gate/GameplayGuard'
 import TeamDashboard from './pages/team/TeamDashboard'
-import Scan from './pages/team/Scan'
-import Submissions from './pages/team/Submissions'
-import { Announcements, Overview } from './pages/team/TeamPlaceholders'
+import { Overview } from './pages/team/TeamPlaceholders'
 
 // Old question URL: the question now lives on the mission screen. Keep ?q= so existing links still select the question.
 function KeepSearch({ to }) { const l = useLocation(); return <Navigate to={{ pathname: to, search: l.search }} replace /> }
@@ -39,9 +37,6 @@ export default function App() {
             <Route element={<TeamLayout />}>
               <Route index element={<TeamDashboard />} />
               <Route path="challenge" element={<KeepSearch to="/team" />} />
-              <Route path="scan" element={<Scan />} />
-              <Route path="submissions" element={<Submissions />} />
-              <Route path="announcements" element={<Announcements />} />
               <Route path="overview" element={<Overview />} />
               <Route path="progress" element={<Navigate to="/team/overview" replace />} />
               <Route path="*" element={<Navigate to="/team" replace />} />
