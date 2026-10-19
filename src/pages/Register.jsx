@@ -16,7 +16,7 @@ export default function Register() {
         {EVENT.registrationDeadline && <div><dt className="mono">Register by</dt><dd>{EVENT.registrationDeadline}</dd></div>}
       </dl>
       <RegisterLink>Open the registration form</RegisterLink>
-      <Notice tone="info" title="After you register">Registering does not log you in. Team accounts are issued by the organisers; you will then use <Link className="link" to="/login">team login</Link> when the mission opens.</Notice>
+      <Notice tone="info" title="Then create your game accounts">The form above registers your team for the event. To play, each member also <Link className="link" to="/signup">creates an account</Link>: one member creates the team and shares its 6-digit join code, and the others join with it.</Notice>
     </div>
   )
 }

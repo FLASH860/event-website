@@ -17,7 +17,7 @@ export default function ForgotPassword() {
     <div className="container block narrow">
       <p className="mono kicker">Account recovery</p>
       <h1 className="h1">Reset password</h1>
-      {!backendConfigured && <Notice tone="warn" title="Backend not connected">Password recovery needs the authentication backend. See the README.</Notice>}
+      {!backendConfigured && <Notice tone="warn" title="Backend not connected">Password recovery needs the Supabase keys in <code>.env.local</code>.</Notice>}
       {phase === 'done'
         ? <Notice tone="ok" title="Check your email">If that address belongs to an account, a reset link has been sent.</Notice>
         : <form className="form" onSubmit={onSubmit} noValidate>

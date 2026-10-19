@@ -10,14 +10,13 @@ export const SCAN_OUTCOMES = {
   network_error: { tone: 'error', title: 'Could not reach the server.', body: 'The scan could not be verified. Nothing was unlocked.', next: 'Check your connection and scan again.' },
 }
 
-export default function ScanResult({ kind, confirmed = false, demo = false, detail }) {
+export default function ScanResult({ kind, confirmed = false, detail }) {
   const o = SCAN_OUTCOMES[kind]
   if (!o) return null
   // Guard: success must never render without server confirmation.
   if (kind === 'valid' && !confirmed) { console.warn('ScanResult: refusing to show success without server confirmation'); return null }
   return (
     <div className={`scanres scanres--${o.tone}`} role={o.tone === 'error' ? 'alert' : 'status'}>
-      {demo && <span className="tag tag--demo">Demonstration — not a real scan</span>}
       <p className="scanres__title">{o.title}</p>
       <p>{detail || o.body}</p>
       <p className="muted">{o.next}</p>

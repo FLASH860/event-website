@@ -19,8 +19,7 @@ export const EVENT = {
   registrationDeadline: null, // e.g. '20 October 2026' once announced
   publicContact: null, // e.g. { name: 'Name', phone: '...' } only if organisers approve publishing
   maxPoints: 900,
-  // Official event-wide schedule (same for every team). Round timers are separate and per team.
-  schedule: { startsAt: '2026-10-24T08:30:00+05:30', endsAt: '2026-10-24T11:30:00+05:30' },
+  timeZone: 'Asia/Kolkata', // used to display the gameplay window; the window itself is set in the admin app and enforced by the database
 }
 
 export const ROUNDS = [
@@ -34,17 +33,3 @@ export const ROUNDS = [
 // Registration is handled OUTSIDE this site. Paste the official link here; never invent one.
 // While null, the Register buttons show a "link coming soon" state instead of a fake link.
 export const REGISTRATION_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfaEUwUO1z5DV6OyF1Oe3Jofy68plMMaC1FpjGCTJkWaF6uAA/viewform' // official Google Form
-
-// Gameplay access window. This is NOT assumed to equal the event schedule: the values below mirror the event time
-// as a PROVISIONAL placeholder (confirmed: false). Set `confirmed: true` once organisers confirm the real window.
-// In production the SERVER is the source of truth (see supabase/schema.sql: gameplay_settings, get_gameplay_status,
-// assert_gameplay_open). This object is only the prototype fallback used when no backend is connected.
-export const GAMEPLAY = {
-  enabled: true,                       // master switch
-  timeZone: 'Asia/Kolkata',
-  startsAt: '2026-10-24T08:30:00+05:30',
-  endsAt: '2026-10-24T11:30:00+05:30',
-  confirmed: false,
-  // Organiser override (prototype). null | { mode: 'open', until?: ISO } | { mode: 'closed' } | { mode: 'extend', until: ISO }
-  override: { mode: 'open' }, // TEMPORARY: window ignored so you can log in now. Set back to null to restore the schedule.
-}

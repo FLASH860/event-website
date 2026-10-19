@@ -27,7 +27,7 @@ export const RESULT_COPY = {
   attempts_exhausted: 'No attempts left for this question.',
   locked: 'This question is not unlocked for your team.',
   closed: 'Mission window closed, Agent.',
-  late: 'The deadline had passed when the server received your answer.',
+  too_fast: 'Slow down, Agent. Wait a couple of seconds between attempts.',
   network: 'Could not reach the server. Your answer was not recorded; try again.',
 }
 

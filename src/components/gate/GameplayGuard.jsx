@@ -3,15 +3,15 @@ import { useGate } from './GateProvider'
 import { useAuth } from '../../auth/AuthContext'
 import { gateCopy } from '../../lib/gate'
 import Wordmark from '../Wordmark'
+import TeamCard from '../TeamCard'
 import { Button, Loading } from '../ui'
 
-// UX layer ONLY: shows the locked screen outside the window. Real enforcement is assert_gameplay_open() in the database;
-// every gameplay endpoint must call it. Dev preview bypasses this so layouts can be inspected.
-// TODO(BACKEND): UX only. The database must ALSO reject gameplay calls outside the window (assert_gameplay_open).
+// UX layer ONLY: shows the locked screen outside the window. Real enforcement is _assert_open() inside every gameplay
+// function in the database, so skipping this component gains nothing.
 export default function GameplayGuard() {
   const { gate, cfg } = useGate()
-  const { preview, signOut } = useAuth()
-  if (preview || gate.state === 'open') return <Outlet />
+  const { signOut } = useAuth()
+  if (gate.state === 'open') return <Outlet />
   if (gate.state === 'loading') return <Loading label="Checking the mission window…" />
   const c = gateCopy(gate, cfg)
   return (
@@ -19,6 +19,7 @@ export default function GameplayGuard() {
       <Wordmark />
       <h1 className="h1" style={{ marginTop: '2rem' }}>{c.title}</h1>
       <p className="lede">{c.body}</p>
+      <TeamCard />
       <div className="row" style={{ marginTop: '1.5rem' }}>
         <Button to="/">Back to landing page</Button>
         <Button variant="ghost" type="button" onClick={signOut}>Log out</Button>

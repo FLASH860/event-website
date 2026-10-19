@@ -12,7 +12,6 @@ export function GateProvider({ children }) {
   const [loadError, setLoadError] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [open, setOpen] = useState(false)
-  const [demo, setDemo] = useState(null) // demonstration override of the displayed state only
   const offset = useRef(0)
 
   useEffect(() => {
@@ -32,18 +31,12 @@ export function GateProvider({ children }) {
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
 
-  const real = useMemo(() => (cfg ? computeGate(cfg, now + offset.current) : { state: loadError ? 'unknown' : 'loading' }), [cfg, now, loadError])
-  const gate = useMemo(() => {
-    if (!demo || !cfg) return real
-    if (demo === 'locked') return { state: 'locked', opensInMs: real.opensInMs > 0 ? real.opensInMs : 90061000 }
-    return { state: demo }
-  }, [demo, real, cfg])
+  const gate = useMemo(() => (cfg ? computeGate(cfg, now + offset.current) : { state: loadError ? 'unknown' : 'loading' }), [cfg, now, loadError])
 
   const value = useMemo(() => ({
-    gate, cfg, loadError, isDemo: Boolean(demo), demo, setDemo,
-    prototype: cfg?.source === 'prototype',
+    gate, cfg, loadError,
     openDialog: () => setOpen(true), closeDialog: () => setOpen(false),
-  }), [gate, cfg, loadError, demo])
+  }), [gate, cfg, loadError])
 
   return (
     <Ctx.Provider value={value}>
@@ -54,7 +47,7 @@ export function GateProvider({ children }) {
 }
 
 function GateDialog({ onClose }) {
-  const { gate, cfg, prototype, isDemo } = useGate()
+  const { gate, cfg } = useGate()
   const ref = useRef(null)
   const copy = gateCopy(gate, cfg)
 
@@ -67,7 +60,6 @@ function GateDialog({ onClose }) {
     <dialog ref={ref} className={`gate gate--${copy.tone}`} aria-labelledby="gate-title" onClose={onClose}
       onClick={(e) => { if (e.target === ref.current) onClose() }}>
       <div className="gate__in">
-        {isDemo && <span className="tag tag--demo">Demonstration state</span>}
         <p className="mono gate__label">{gate.state === 'locked' ? 'Mission status · standing by' : 'Mission status'}</p>
         <h2 id="gate-title" className="gate__title">{copy.title}</h2>
         <p>{copy.body}</p>
@@ -75,7 +67,6 @@ function GateDialog({ onClose }) {
           <p className="gate__count"><span className="mono">Opens in</span> <span role="timer" aria-live="off" className="gate__time">{formatCountdown(gate.opensInMs)}</span></p>
         )}
         {gate.state === 'locked' && cfg && !cfg.confirmed && <p className="muted small">This opening time is provisional. The organisers will confirm it.</p>}
-        {prototype && <p className="muted small">Prototype note: this check uses your device’s clock. Real access is enforced by the server once the backend is connected.</p>}
         <div className="row">
           <button type="button" className="btn btn--primary" onClick={onClose} autoFocus>Back to landing page</button>
           <Link className="btn btn--ghost" to="/rules" onClick={onClose}>Read the rules</Link>

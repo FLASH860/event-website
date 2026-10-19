@@ -19,7 +19,7 @@ export function MessageProvider({ children }) {
     // A lower-priority message never replaces a higher-priority one that is on screen.
     if (current.current && (current.current.priority ?? 0) > (m.priority ?? 0)) return null
     clearTimeout(timer.current)
-    const item = { ...m, demo: Boolean(opts.demo), heading: opts.heading, detail: opts.detail, variant: opts.variant || 'toast', key: Date.now() }
+    const item = { ...m, heading: opts.heading, detail: opts.detail, variant: opts.variant || 'toast', key: Date.now() }
     current.current = item
     setMsg(item)
     timer.current = setTimeout(dismiss, m.durationMs ?? 4000)
@@ -36,7 +36,6 @@ export function MessageProvider({ children }) {
         {msg && (
           <div key={msg.key} className={`msg msg--${msg.variant}`}>
             <div className="msg__body">
-              {msg.demo && <span className="tag tag--demo">Demonstration</span>}
               {msg.heading && <p className="msg__heading">{msg.heading}</p>}
               <p className="msg__text">{msg.text}</p>
               {msg.detail && <p className="msg__detail">{msg.detail}</p>}

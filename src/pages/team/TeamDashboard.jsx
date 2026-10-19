@@ -1,13 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { Button, Loading } from '../../components/ui'
+import { Loading } from '../../components/ui'
 import { MISSION } from '../../config/mission'
-import { MOCK_DATA } from '../../lib/mock'
 import { useAuth } from '../../auth/AuthContext'
-import { DEMO_TOOLS } from '../../lib/demo'
 import { getMyProgress } from '../../lib/missionApi'
-import SelfDestructBriefing from '../../components/immersion/SelfDestructBriefing'
-import { useMissionMessage } from '../../components/immersion/MessageProvider'
 import QuestionPanel from '../../components/mission/QuestionPanel'
 import MissionLog from '../../components/mission/MissionLog'
 import TeamIntro from '../../components/mission/TeamIntro'
@@ -17,8 +13,6 @@ import TeamIntro from '../../components/mission/TeamIntro'
 export default function TeamDashboard() {
   const { user } = useAuth()
   const { mission, news, briefingActive } = useOutletContext()
-  const { show } = useMissionMessage()
-  const [playing, setPlaying] = useState(false) // dev-only self-destruct demo
   const [sel, setSel] = useState(null)
   const [prog, setProg] = useState(null)
   const st = mission.state
@@ -34,7 +28,6 @@ export default function TeamDashboard() {
 
   return (
     <>
-      {playing && <SelfDestructBriefing onDone={() => setPlaying(false)} />}
       <TeamIntro id={user?.id || user?.email} name={user?.team?.name} hold={briefingActive} />
 
       {latest && (
@@ -42,14 +35,14 @@ export default function TeamDashboard() {
       )}
 
       {!st && !mission.error && <Loading label="Loading your mission…" />}
-      {mission.error === 'not_connected' && <div className="note"><p className="mono muted">Backend not connected</p><p>Your questions appear here once the backend is connected. Nothing is faked.</p></div>}
+      {mission.error === 'not_connected' && <div className="note"><p className="mono muted">Backend not connected</p><p>Add the Supabase keys to <code>.env.local</code> and restart the dev server.</p></div>}
       {mission.error === 'failed' && !st && <div className="note"><p className="mono muted">Could not load</p><p>Refresh to try again. If it keeps failing, tell a volunteer.</p></div>}
 
       {st && sel != null && (
         <section className="console" aria-label="Digital Transmission">
           <header className="console__head">
             <p className="mono console__stage"><span>Stage 1 of 5</span> Digital Transmission</p>
-            <p className="mono muted console__count">{st.complete ? 'All 4 solved' : `${st.solvedCount} of ${MISSION.questionCount} solved`}{MOCK_DATA && <span className="tag tag--demo">Demo data</span>}</p>
+            <p className="mono muted console__count">{st.complete ? 'All 4 solved' : `${st.solvedCount} of ${MISSION.questionCount} solved`}</p>
           </header>
           <div className="console__q">
             <QuestionPanel state={st} setState={mission.setState} sel={sel} onProceed={setSel} />
@@ -63,20 +56,6 @@ export default function TeamDashboard() {
         </section>
       )}
 
-      {DEMO_TOOLS && (
-        <details className="demo">
-          <summary>Demonstration: cinematic moments</summary>
-          <p className="muted small">Everything here is simulated and labelled as a demonstration. No competition state changes.</p>
-          <div className="row">
-            <Button type="button" variant="ghost" onClick={() => setPlaying(true)}>Replay self-destruct sequence</Button>
-            <Button type="button" variant="ghost" onClick={() => show('checkpoint-verified', { confirmed: true, demo: true, variant: 'milestone' })}>Checkpoint verified</Button>
-            <Button type="button" variant="ghost" onClick={() => show('stage-unlock', { confirmed: true, demo: true, variant: 'milestone' })}>Access granted</Button>
-            <Button type="button" variant="ghost" onClick={() => show('final-entry', { round: 5, confirmed: true, demo: true, variant: 'milestone' })}>Final mission entry</Button>
-            <Button type="button" variant="ghost" onClick={() => show('completion', { confirmed: true, demo: true, variant: 'milestone' })}>Mission accomplished</Button>
-            <Button type="button" variant="ghost" onClick={() => show('easter-egg', { demo: true, force: true })}>Easter egg</Button>
-          </div>
-        </details>
-      )}
     </>
   )
 }

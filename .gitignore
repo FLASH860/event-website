@@ -2,4 +2,5 @@
 .env.*.local
 .env.local
 dist
+admin/dist
 node_modules

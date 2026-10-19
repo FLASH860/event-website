@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { MISSION, RESULT_COPY } from '../../config/mission'
-import { timingFor } from '../../config/timing'
-import { DEMO_TOOLS } from '../../lib/demo'
-import { MOCK_DATA } from '../../lib/mock'
 import { submitAnswer } from '../../lib/missionApi'
-import useRoundTimer from '../../hooks/useRoundTimer'
-import ChallengeTimer from '../immersion/ChallengeTimer'
 import { QuestionBody, AnswerForm } from './MissionParts'
-import { Button } from '../ui'
 import AnswerFeedback from './AnswerFeedback'
 import MissionSequence, { Intel } from './MissionSequence'
 
@@ -16,11 +10,7 @@ import MissionSequence, { Intel } from './MissionSequence'
 export default function QuestionPanel({ state, setState, sel, onProceed }) {
   const [busy, setBusy] = useState(false)
   const [fb, setFb] = useState(null)
-  const [demoTimer, setDemoTimer] = useState(false)
-  const [minutes, setMinutes] = useState(5)
   const q = state.questions.find((x) => x.index === sel)
-  const timing = timingFor(sel || 1)
-  const { view, demoActions } = useRoundTimer(`question-${sel}`, { demo: demoTimer })
 
   useEffect(() => { setFb(null) }, [sel]) // feedback belongs to one question
   const say = (item) => setFb({ ...item, seq: Date.now() })
@@ -31,7 +21,6 @@ export default function QuestionPanel({ state, setState, sel, onProceed }) {
       const r = await submitAnswer(sel, answer)
       if (r.result === 'correct') {
         setState(r.state)
-        const after = r.state.questions.find((x) => x.index === sel)
         say({ kind: 'correct' }) // the sequence below reads the server state; nothing is claimed beyond it
       } else if (r.result === 'incorrect') {
         const left = q.attemptsAllowed != null ? Math.max(0, q.attemptsAllowed - (q.attemptsUsed + 1)) : null
@@ -53,9 +42,6 @@ export default function QuestionPanel({ state, setState, sel, onProceed }) {
 
   return (
     <div className="qp" key={q.index}>
-      {view && (view.totalMs != null || view.status !== 'not_started') && (
-        <div className="timerbar"><ChallengeTimer round={{ n: q.index, name: q.title }} label={`Question ${q.index}`} view={view} warningsSec={timing.warningsSec}
-          onWarning={() => show('countdown-warning', { demo: view.source === 'demo' })} /></div>)}
       <QuestionBody q={q} total={MISSION.questionCount} />
       {q.status === 'solved'
         ? <MissionSequence q={q} total={MISSION.questionCount} fresh={fb?.kind === 'correct'} onProceed={onProceed} />
@@ -65,17 +51,6 @@ export default function QuestionPanel({ state, setState, sel, onProceed }) {
             <AnswerFeedback id="answer-feedback" item={busy ? { kind: 'verifying' } : fb} />
             {q.hint?.status === 'unlocked' && <Intel q={q} />}
           </>}
-      {DEMO_TOOLS && (
-        <details className="demo">
-          <summary>Demonstration timer tools</summary>
-          <p className="muted small">Demo only. Never a competition timer.</p>
-          <label className="check"><input type="checkbox" checked={demoTimer} onChange={(e) => setDemoTimer(e.target.checked)} /> Use demonstration timer for this question</label>
-          {demoTimer && <div className="row"><label>Minutes <input type="number" min="1" max="180" value={minutes} onChange={(e) => setMinutes(Math.max(1, Number(e.target.value) || 1))} className="num-in" /></label>
-            <Button type="button" onClick={() => demoActions.start(minutes)}>Start</Button>
-            <Button type="button" variant="ghost" onClick={demoActions.pause}>Pause</Button>
-            <Button type="button" variant="ghost" onClick={demoActions.resume}>Resume</Button>
-            <Button type="button" variant="ghost" onClick={demoActions.reset}>Reset</Button></div>}
-        </details>)}
     </div>
   )
 }

@@ -36,7 +36,7 @@ function MoreMenu({ onReplay }) {
 }
 
 export default function TeamLayout() {
-  const { user, signOut, devLabel } = useAuth()
+  const { user, signOut } = useAuth()
   const id = user?.id || user?.email || 'anon'
   const mission = useMission()
   const news = useAnnouncements(id)
@@ -44,7 +44,6 @@ export default function TeamLayout() {
   const unread = news.unread.length
   return (
     <div className="shell shell--team">
-      {devLabel && <div className="devbar">{devLabel}</div>}
       <header className="tb">
         <div className="container tb__in">
           <Wordmark to="/team" />
