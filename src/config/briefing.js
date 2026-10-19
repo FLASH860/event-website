@@ -16,20 +16,19 @@ export const briefingSlides = ({ teamName, event, settings }) => [
   {
     id: 'objective', label: 'Mission objective', kicker: 'Objective',
     lines: ['Your objective', 'is simple.', 'Completion is not.'],
-    tagline: 'Think → Decode → Search → Solve → Operate',
-    body: ['A prototype robot has been damaged. Its information and components are scattered. Your team must put it back together.'],
-    points: ['Stage 1 · Digital Transmission: decode, reason, solve.', 'Stage 2 · Robotics & Logic Challenge.', 'Stage 3 · Find Your Robo: recover four robot components — Head, Body/Core, Arms, Legs.', 'Stage 4 · Hardware Mission: operate the robot through the course.', 'Stage 5 · Final Mission: for qualifying teams.'],
+    tagline: 'Think → Decode → Solve',
+    body: ['Four questions stand between your team and the mission. Each correct answer opens the next one.'],
+    points: ['Four questions, answered in order.', 'Question 1 is open from the start.', 'Solve one to unlock the next.', 'Answers are checked by the server.'],
   },
   {
-    id: 'operation', label: 'Stage 1 · Digital Transmission', kicker: 'How Stage 1 works',
+    id: 'operation', label: 'The four questions', kicker: 'How it works',
     lines: ['Every answer', 'opens a new door.'],
     points: [
-      'Stage 1 is a sequence of four online questions.',
+      'The mission is a sequence of four online questions.',
       'You begin with Question 1.',
       stage1Rule(settings),
       'Every answer is checked by the server, never in your browser.',
     ],
-    note: 'The four questions belong to Digital Transmission only. They are not the five stages, and they are not the four robot components.',
   },
   {
     id: 'field', label: 'Field operations', kicker: 'Field rules',

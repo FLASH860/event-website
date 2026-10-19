@@ -5,7 +5,6 @@ import TeamLayout from './components/TeamLayout'
 import TeamGate from './components/TeamGate'
 import Home from './pages/Home'
 import Rules from './pages/Rules'
-import Register from './pages/Register'
 import Signup from './pages/Signup'
 import Login from './pages/Login'
 import ForgotPassword from './pages/ForgotPassword'
@@ -27,7 +26,6 @@ export default function App() {
       <Route element={<PublicLayout />}>
         <Route index element={<Home />} />
         <Route path="rules" element={<Rules />} />
-        <Route path="register" element={<Register />} />
         <Route path="signup" element={<Signup />} />
         <Route path="login" element={<Login />} />
         <Route path="forgot-password" element={<ForgotPassword />} />

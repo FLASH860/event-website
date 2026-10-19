@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Button, SectionHead } from '../components/ui'
 import StartPlayingButton from '../components/gate/StartPlayingButton'
-import RegisterLink from '../components/gate/RegisterLink'
 import { EVENT, ROUNDS } from '../config/eventConfig'
 import { IMAGERY } from '../config/imagery'
 import HeroTitle, { useTitleIntro } from '../components/HeroTitle'
@@ -25,10 +24,9 @@ export default function Home() {
           <p className="hero__line hero__after">Decode the transmission. Recover the components. Control the robot. Activate the Robo-Core.</p>
           <p className="hero__desc hero__after">An inter-college robotics mission combining digital puzzles, technical reasoning, campus clue hunts, and a hands-on robot obstacle challenge.</p>
           <div className="hero__actions hero__after">
-            <RegisterLink />
-            <StartPlayingButton variant="ghost" />
+            <Button to="/signup">Create account</Button>
             <Button to="/login" variant="ghost">Log in</Button>
-            <Button to="/signup" variant="ghost">Create account</Button>
+            <StartPlayingButton variant="ghost" />
           </div>
           <dl className="facts hero__after">
             <div><dt className="mono">Date</dt><dd>{EVENT.dateShort}</dd></div>
@@ -45,8 +43,8 @@ export default function Home() {
         <div className="container split">
           <SectionHead kicker="The premise" title="A damaged robot. One window to recover it." />
           <div className="prose">
-            <p>Your team has been handed a robot system that has been badly damaged. To bring it back, you will work through five rounds that move from screens to campus to hardware.</p>
-            <p>First you solve problems digitally. Then you leave the room and recover real mission items at approved checkpoints, verified by scanning QR codes. Finally you operate a provided robot through an obstacle course and complete the Robo-Core activation.</p>
+            <p>Your team has been handed a robot system that has been badly damaged. To bring it back, you will answer four questions, each one unlocking the next.</p>
+            <p>Solve a question and it reveals where to go next. Recover each component at its approved checkpoint by scanning the QR code there.</p>
           </div>
         </div>
       </section>
@@ -102,7 +100,7 @@ export default function Home() {
           <h2 className="final-cta__title">Are you ready to accept the mission?</h2>
           <p className="lede">{EVENT.dateLabel} · {EVENT.time} · {EVENT.venue}</p>
           <div className="hero__actions">
-            <RegisterLink />
+            <Button to="/signup">Create account</Button>
             <StartPlayingButton variant="ghost" />
           </div>
         </div>

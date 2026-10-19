@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import Wordmark from './Wordmark'
 import StartPlayingButton from './gate/StartPlayingButton'
-import { EVENT, REGISTRATION_URL } from '../config/eventConfig'
+import { EVENT } from '../config/eventConfig'
 
 export default function PublicLayout() {
   const [open, setOpen] = useState(false)
@@ -24,7 +24,6 @@ export default function PublicLayout() {
           <nav id="pub-nav" className={`nav ${open ? 'is-open' : ''}`} aria-label="Primary">
             <Link to="/#briefing">Mission briefing</Link>
             <NavLink to="/rules">Rules</NavLink>
-            <NavLink to="/register">Register</NavLink>
             <NavLink to="/signup">Create account</NavLink>
             <NavLink to="/login">Log in</NavLink>
             <span className="nav__play"><StartPlayingButton variant="ghost" size="sm" showStatus={false} /></span>
@@ -43,7 +42,6 @@ export default function PublicLayout() {
           </ul>
           <ul className="plain">
             <li><Link to="/rules">Rules</Link></li>
-            <li>{REGISTRATION_URL ? <a href={REGISTRATION_URL} target="_blank" rel="noopener noreferrer">Register</a> : <Link to="/register">Register</Link>}</li>
             <li><Link to="/signup">Create team account</Link></li>
             <li><Link to="/login">Team login</Link></li>
           </ul>

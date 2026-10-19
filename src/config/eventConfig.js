@@ -29,7 +29,3 @@ export const ROUNDS = [
   { n: 4, id: 'robo-rescue', name: 'Hardware Mission: Robo Rescue', points: 150, blurb: 'Operate a provided robot through an obstacle course to complete a mission.' },
   { n: 5, id: 'final-mission', name: 'Final Mission', points: 300, blurb: 'Solve the final puzzle and complete the Robo-Core activation challenge.' },
 ]
-
-// Registration is handled OUTSIDE this site. Paste the official link here; never invent one.
-// While null, the Register buttons show a "link coming soon" state instead of a fake link.
-export const REGISTRATION_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfaEUwUO1z5DV6OyF1Oe3Jofy68plMMaC1FpjGCTJkWaF6uAA/viewform' // official Google Form
