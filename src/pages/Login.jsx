@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Field, Notice, Loading } from '../components/ui'
 import { useAuth, homeFor } from '../auth/AuthContext'
+import AuthTabs from '../components/AuthTabs'
 
 export default function Login() {
   const { status, role, signIn, backendConfigured, notice, clearNotice } = useAuth()
@@ -25,6 +26,7 @@ export default function Login() {
 
   return (
     <div className="container block narrow auth">
+      <AuthTabs />
       <p className="mono kicker">Team access</p>
       <h1 className="h1">Log in</h1>
       <p className="lede">Use the email and password you signed up with. Your teammates log in with their own accounts.</p>

@@ -27,6 +27,8 @@ export default function Home() {
           <div className="hero__actions hero__after">
             <RegisterLink />
             <StartPlayingButton variant="ghost" />
+            <Button to="/login" variant="ghost">Log in</Button>
+            <Button to="/signup" variant="ghost">Create account</Button>
           </div>
           <dl className="facts hero__after">
             <div><dt className="mono">Date</dt><dd>{EVENT.dateShort}</dd></div>

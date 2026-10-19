@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Button, Field, Notice, Loading } from '../components/ui'
 import { useAuth, homeFor } from '../auth/AuthContext'
+import AuthTabs from '../components/AuthTabs'
 
 // Each player makes their own account, then creates a team or joins one with a 6-digit code.
 export default function Signup() {
@@ -32,6 +33,7 @@ export default function Signup() {
 
   return (
     <div className="container block narrow auth">
+      <AuthTabs />
       <p className="mono kicker">Team account</p>
       <h1 className="h1">Create your account</h1>
       <p className="lede">Every player has their own login. After this step you create a team or join one with a 6-digit code.</p>
