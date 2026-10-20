@@ -155,7 +155,7 @@ create table if not exists public.audit_log (
 );
 create index if not exists audit_log_at_idx on public.audit_log (at desc);
 
--- One timer per team, set / started / stopped by organisers. Display only: it does not block answers.
+-- One timer per team: organisers add minutes, start and stop it. Display only: it does not block answers.
 create table if not exists public.team_timers (
   team_id uuid primary key references public.teams(id) on delete cascade,
   duration_ms bigint not null check (duration_ms > 0),
@@ -529,18 +529,26 @@ begin
   return public._timer_json(public._need_team());
 end $$;
 
--- p_team = null means EVERY team. Setting a timer resets it to idle with the full duration.
-create or replace function public.admin_set_timer(p_team uuid, p_minutes numeric) returns void
+-- Adds minutes to a team's timer (p_team = null means EVERY team). A team with no timer yet gets one of exactly that length.
+-- Works while the clock is idle, running, stopped or finished; a negative number takes time away.
+create or replace function public.admin_add_time(p_team uuid, p_minutes numeric) returns void
 language plpgsql security definer set search_path = public as $$
 declare ms bigint;
 begin
   perform public._need_admin();
-  if p_minutes is null or p_minutes <= 0 or p_minutes > 600 then raise exception 'invalid' using errcode = 'P0001'; end if;
+  if p_minutes is null or p_minutes = 0 or abs(p_minutes) > 600 then raise exception 'invalid' using errcode = 'P0001'; end if;
   ms := round(p_minutes * 60000);
-  insert into public.team_timers (team_id, duration_ms, status, deadline_at, remaining_ms)
-  select t.id, ms, 'idle', null, ms from public.teams t where p_team is null or t.id = p_team
-  on conflict (team_id) do update set duration_ms = excluded.duration_ms, status = 'idle', deadline_at = null, remaining_ms = excluded.remaining_ms;
-  perform public._audit('timer_set', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || p_minutes || ' min');
+  update public.team_timers set
+    duration_ms = greatest(1, duration_ms + ms),
+    remaining_ms = case when status = 'running' then remaining_ms else greatest(0, remaining_ms + ms) end,
+    deadline_at = case when status = 'running' then greatest(now(), deadline_at) + (ms || ' milliseconds')::interval else deadline_at end
+  where p_team is null or team_id = p_team;
+  if ms > 0 then
+    insert into public.team_timers (team_id, duration_ms, status, deadline_at, remaining_ms)
+    select t.id, ms, 'idle', null, ms from public.teams t
+    where (p_team is null or t.id = p_team) and not exists (select 1 from public.team_timers x where x.team_id = t.id);
+  end if;
+  perform public._audit('timer_time_added', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || p_minutes || ' min');
 end $$;
 
 create or replace function public.admin_start_timer(p_team uuid) returns void
@@ -606,7 +614,7 @@ end $$;
 
 -- ===================================== CLEAN-UP of removed features (so re-running upgrades an older database) =====================================
 drop table if exists public.announcements, public.round_scores, public.qualification_decisions, public.qualification_settings cascade;
-drop function if exists public.list_announcements(), public.get_my_progress(), public._round_max(int), public.join_team(text, text), public.verify_checkpoint(text), public.admin_stats(), public.admin_approve_recovery(uuid, int),
+drop function if exists public.admin_set_timer(uuid, numeric), public.list_announcements(), public.get_my_progress(), public._round_max(int), public.join_team(text, text), public.verify_checkpoint(text), public.admin_stats(), public.admin_approve_recovery(uuid, int),
   public.admin_release_hint(uuid, int), public.admin_reset_team(uuid), public.admin_remove_member(uuid), public.admin_delete_team(uuid),
   public.admin_get_settings(), public.admin_save_settings(jsonb), public.admin_get_gameplay(), public.admin_save_gameplay(jsonb),
   public.admin_list_questions(), public.admin_save_question(int, jsonb), public.admin_check_answer(int, text), public.admin_generate_token(int),
@@ -633,5 +641,5 @@ to authenticated;
 
 -- Organisers (each re-checks is_admin() and raises 'forbidden' for anyone else)
 grant execute on function
-  public.admin_list_teams(), public.admin_set_timer(uuid, numeric), public.admin_start_timer(uuid), public.admin_stop_timer(uuid)
+  public.admin_list_teams(), public.admin_add_time(uuid, numeric), public.admin_start_timer(uuid), public.admin_stop_timer(uuid)
 to authenticated;

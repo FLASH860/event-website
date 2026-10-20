@@ -28,7 +28,7 @@ Roles can only be changed in the SQL editor. A player cannot make themselves an 
 
 1. One person per team opens **Create account**: team name, their name, email, password. The team gets a 6-digit code, shown on the dashboard. Teammates use **Log in** with only that code and their own name. A team holds up to 4 people and shares one progress. Logging in again with the same name takes over that member's seat (new phone, cleared browser) without adding a fifth.
 2. Mission 1 is open. A correct answer unlocks the next mission and shows its hint straight away. Clicking a locked mission says to solve the previous one.
-3. In Control: **Teams** lists every team and its members, **Leaderboard** ranks them (missions solved, then who finished their latest mission first), **Timer** sets, starts and stops each team's clock (or every team at once). Teams see their own countdown on the dashboard. The timer is display only: it does not block answers.
+3. In Control: **Teams** lists every team and its members, **Leaderboard** ranks them (missions solved, then who finished their latest mission first), **Timer** adds minutes to, starts and stops each team's clock (or every team at once). Teams see their own countdown on the dashboard. The timer is display only: it does not block answers.
 
 ## Writing the questions
 

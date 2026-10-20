@@ -8,7 +8,7 @@ export const supabase = configured ? createClient(url, key, { auth: { storageKey
 
 const MESSAGES = {
   forbidden: 'Not allowed: this account is not an organiser.',
-  invalid: 'Enter a number of minutes between 1 and 600.',
+  invalid: 'Enter a number of minutes (not 0, at most 600).',
 }
 export async function rpc(name, args = {}) {
   if (!configured) throw new Error('Supabase keys are missing. Add them to .env.local in the project root.')
@@ -20,11 +20,11 @@ export async function rpc(name, args = {}) {
   return data
 }
 
-// Everything the console does: read the teams, and set / start / stop timers. A team id of null means every team.
+// Everything the console does: read the teams, and add time to / start / stop timers. A team id of null means every team.
 export const api = {
   profile: () => rpc('get_my_profile'),
   teams: () => rpc('admin_list_teams'),
-  setTimer: (team, minutes) => rpc('admin_set_timer', { p_team: team, p_minutes: minutes }),
+  addTime: (team, minutes) => rpc('admin_add_time', { p_team: team, p_minutes: minutes }),
   startTimer: (team) => rpc('admin_start_timer', { p_team: team }),
   stopTimer: (team) => rpc('admin_stop_timer', { p_team: team }),
 }

@@ -50,7 +50,7 @@ for (const fn of ['_need_admin()', "_answer_hash('a','b')", "set_question(1,'t',
   const r = await as('admin', `select public.${fn.includes('(') ? fn : fn + '(\'x\')'}`)
   ok(`not callable from the API even by an organiser: ${fn}`, !r.ok, JSON.stringify(r))
 }
-for (const q of ['admin_list_teams()', "admin_set_timer(null, 5)", 'admin_start_timer(null)', 'admin_stop_timer(null)']) {
+for (const q of ['admin_list_teams()', "admin_add_time(null, 5)", 'admin_start_timer(null)', 'admin_stop_timer(null)']) {
   const r = await as('p1', `select public.${q}`)
   ok(`player blocked from ${q}`, !r.ok && /forbidden/.test(r.err), r.err)
 }
@@ -116,24 +116,33 @@ r = await rpc('admin', 'admin_list_teams'); const alpha = r.v.find((t) => t.name
 ok('organiser sees teams with member names and progress', r.v.length === 2 && alpha.members.length === 4 && alpha.solvedCount === 1 && alpha.lastSolvedAt, JSON.stringify(alpha).slice(0, 300))
 ok('team list leaks no emails or join codes', !/@x\.com|joinCode/.test(JSON.stringify(r.v)))
 r = await rpc('p1', 'get_my_timer'); ok('no timer yet', r.v.status === 'none')
-r = await rpc('admin', 'admin_set_timer', null, 10); ok('set a 10 min timer for every team', r.ok, r.err)
-r = await rpc('p1', 'get_my_timer'); ok('team sees idle timer with full duration', r.v.status === 'idle' && r.v.remainingMs === 600000, JSON.stringify(r.v))
-r = await rpc('admin', 'admin_set_timer', tid, 0); ok('zero minutes rejected', !r.ok && /invalid/.test(r.err))
+r = await rpc('admin', 'admin_add_time', null, 10); ok('add 10 min to every team (creates the timers)', r.ok, r.err)
+r = await rpc('p1', 'get_my_timer'); ok('team sees an idle timer with the 10 minutes', r.v.status === 'idle' && r.v.remainingMs === 600000, JSON.stringify(r.v))
+r = await rpc('admin', 'admin_add_time', tid, 0); ok('zero minutes rejected', !r.ok && /invalid/.test(r.err))
+await rpc('admin', 'admin_add_time', tid, 5)
+r = await rpc('p1', 'get_my_timer'); ok('adding time to an idle clock extends it (10 + 5 = 15 min)', r.v.status === 'idle' && r.v.remainingMs === 900000, JSON.stringify(r.v))
+r = await rpc('solo', 'get_my_timer'); ok('adding to one team leaves the others alone', r.v.remainingMs === 600000)
 await rpc('admin', 'admin_start_timer', tid)
-r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting down', r.v.status === 'running' && r.v.remainingMs <= 600000 && r.v.remainingMs > 590000, JSON.stringify(r.v))
+r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting down', r.v.status === 'running' && r.v.remainingMs <= 900000 && r.v.remainingMs > 890000, JSON.stringify(r.v))
 r = await rpc('solo', 'get_my_timer'); ok('start for one team leaves the other idle', r.v.status === 'idle')
 await db.exec(`update public.team_timers set deadline_at = now() + interval '5 minutes' where team_id = '${tid}'`)
+await rpc('admin', 'admin_add_time', tid, 2)
+r = await rpc('p1', 'get_my_timer'); ok('adding time to a RUNNING clock pushes the finish out (5 + 2 = 7 min)', r.v.status === 'running' && r.v.remainingMs > 415000 && r.v.remainingMs <= 420000, JSON.stringify(r.v))
 await rpc('admin', 'admin_stop_timer', tid)
 r = await rpc('p1', 'get_my_timer'); const frozen = r.v
-ok('stop freezes the remaining time', frozen.status === 'stopped' && frozen.remainingMs > 295000 && frozen.remainingMs <= 300000, JSON.stringify(frozen))
+ok('stop freezes the remaining time', frozen.status === 'stopped' && frozen.remainingMs > 415000 && frozen.remainingMs <= 420000, JSON.stringify(frozen))
 await rpc('admin', 'admin_start_timer', tid)
 r = await rpc('p1', 'get_my_timer'); ok('start again resumes from the frozen time', r.v.status === 'running' && r.v.remainingMs <= frozen.remainingMs)
 await db.exec(`update public.team_timers set deadline_at = now() - interval '1 second' where team_id = '${tid}'`)
 r = await rpc('p1', 'get_my_timer'); ok('a timer that ran out reads as finished', r.v.status === 'finished' && r.v.remainingMs === 0)
+await rpc('admin', 'admin_add_time', tid, 3)
+r = await rpc('p1', 'get_my_timer'); ok('adding time to a finished clock gives it fresh time', r.v.status === 'running' && r.v.remainingMs > 175000 && r.v.remainingMs <= 180000, JSON.stringify(r.v))
+await rpc('admin', 'admin_add_time', tid, -1)
+r = await rpc('p1', 'get_my_timer'); ok('a negative number takes time away', r.v.remainingMs > 115000 && r.v.remainingMs <= 120000, JSON.stringify(r.v))
 await rpc('admin', 'admin_start_timer', null); await rpc('admin', 'admin_stop_timer', null)
 r = await rpc('solo', 'get_my_timer'); ok('start/stop with no team applies to every team', r.v.status === 'stopped')
 r = await rpc('admin', 'admin_list_teams'); ok('organiser list carries each timer', r.v.every((t) => t.timer && t.timer.status))
-r = await as('p1', `select public.admin_set_timer(null, 5)`); ok('player cannot touch timers', !r.ok && /forbidden/.test(r.err))
+r = await as('p1', `select public.admin_add_time(null, 5)`); ok('player cannot touch timers', !r.ok && /forbidden/.test(r.err))
 r = await rpc('admin', 'get_mission_state'); ok('an organiser has no team, so no mission', !r.ok && /no_team/.test(r.err))
 
 // ---- leaving
@@ -154,7 +163,7 @@ if (bak) {
   await old.exec(fs.readFileSync(bak, 'utf8'))
   await old.exec(sql)
   const left = (await old.query(`select count(*)::int c from information_schema.tables where table_schema='public' and table_name in ('announcements','round_scores','qualification_settings')`)).rows[0].c
-  const fns = (await old.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'admin\\_%' and p.proname not in ('admin_list_teams','admin_set_timer','admin_start_timer','admin_stop_timer')`)).rows[0].c
+  const fns = (await old.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'admin\\_%' and p.proname not in ('admin_list_teams','admin_add_time','admin_start_timer','admin_stop_timer')`)).rows[0].c
   ok('upgrade from the old schema drops removed tables and functions', left === 0 && fns === 0, `tables ${left}, functions ${fns}`)
 }
 process.exit(fail ? 1 : 0)
