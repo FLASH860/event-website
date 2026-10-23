@@ -28,7 +28,11 @@ Roles can only be changed in the SQL editor. A player cannot make themselves an 
 
 1. One person per team opens **Create account**: team name, their name, email, password. The team gets a 6-digit code, shown on the dashboard. Teammates use **Log in** with only that code and their own name. A team holds up to 4 people and shares one progress. Logging in again with the same name takes over that member's seat (new phone, cleared browser) without adding a fifth.
 2. Mission 1 is open. A correct answer unlocks the next mission and shows its hint straight away. Clicking a locked mission says to solve the previous one.
-3. In Control: **Teams** lists every team and its members, **Leaderboard** ranks them (missions solved, then who finished their latest mission first), **Timer** adds minutes to, starts and stops each team's clock (or every team at once). Teams see their own countdown on the dashboard. The timer is display only: it does not block answers.
+3. In Control: **Teams** lists every team and its members, **Leaderboard** ranks them (missions solved, then who finished their latest mission first), **Timer** is a stopwatch per team that counts up from 0:00: Start, Stop, Reset, and Log (saves the time with a short note without stopping it). Teams see their own elapsed time on the dashboard. It is display only: it does not block answers.
+
+## The four questions (hands-on puzzles)
+
+Questions 1-4 each have an interactive puzzle in `src/components/puzzles` (jigsaw, pipes, reboot sequence, defuse + snake). The question text and the hashed answers live in the database: run `event-private/questions.sql` in the SQL editor (it is gitignored because it holds the answers). All four are open from the start while `mission_settings.unlock_all` is true; run `update public.mission_settings set unlock_all = false;` to make teams solve them in order. `npm run test:puzzles` tests the puzzle logic.
 
 ## Writing the questions
 

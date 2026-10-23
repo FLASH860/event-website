@@ -76,12 +76,27 @@ export function AnswerForm({ question, onSubmit, onEmpty, onEdit, busy, disabled
   )
 }
 
+// A line written as [[img:/path.png|Label]] shows that picture with a download link; every other line is plain text.
+function Body({ text }) {
+  const parts = String(text || '').split(/^\[\[img:(.+?)\|(.+?)\]\]$/m)
+  const out = []
+  for (let i = 0; i < parts.length; i += 3) {
+    if (parts[i].trim()) out.push(<p key={`t${i}`} className="qhead__body">{parts[i].trim()}</p>)
+    if (parts[i + 1]) out.push(
+      <figure key={`f${i}`} className="qfig">
+        <a href={parts[i + 1]} target="_blank" rel="noopener noreferrer"><img src={parts[i + 1]} alt={parts[i + 2]} /></a>
+        <figcaption><a className="link" href={parts[i + 1]} download>{parts[i + 2]} (download)</a></figcaption>
+      </figure>)
+  }
+  return out
+}
+
 export function QuestionBody({ q, total = 4 }) {
   return (
     <header className="qhead">
       <p className="mono kicker">Question {q.index} of {total}</p>
       <h2 className="qhead__title">{q.title}</h2>
-      <p className="qhead__body">{q.body}</p>
+      <Body text={q.body} />
       {q.attachments?.length > 0 && <ul className="plain">{q.attachments.map((a) => <li key={a.url}><a className="link" href={a.url} target="_blank" rel="noopener noreferrer">{a.name}</a></li>)}</ul>}
     </header>
   )

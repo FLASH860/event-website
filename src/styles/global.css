@@ -381,3 +381,6 @@ input[aria-invalid=true]{border-color:var(--err)}
 }
 @keyframes seq-resolve{0%{transform:scale(.6);opacity:.2}100%{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.seq--fresh>*,.seq--fresh .seq__tick{animation:none}}
+.qfig{margin:1rem 0;max-width:46rem}
+.qfig img{display:block;width:100%;height:auto;border:1px solid var(--line)}
+.qfig figcaption{margin-top:.4rem;font-size:.9rem}

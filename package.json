@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "admin": "vite --config admin/vite.config.js",
     "admin:build": "vite build --config admin/vite.config.js",
-    "test:db": "node supabase/tests/schema.test.mjs"
+    "test:db": "node supabase/tests/schema.test.mjs",
+    "test:puzzles": "node src/components/puzzles/logic.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

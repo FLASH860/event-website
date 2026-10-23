@@ -73,6 +73,9 @@ create table if not exists public.mission_settings (
   hint_reveal text not null default 'on_correct_answer' check (hint_reveal in ('on_correct_answer', 'organiser_release'))
 );
 insert into public.mission_settings default values on conflict (id) do nothing;
+-- While true, every active question is open from the start (no need to solve them in order). Set to false for the sequential game:
+--   update public.mission_settings set unlock_all = false;
+alter table public.mission_settings add column if not exists unlock_all boolean not null default true;
 
 -- The four questions. Content is entered in the admin app; nothing here is event content.
 create table if not exists public.questions (
@@ -155,14 +158,22 @@ create table if not exists public.audit_log (
 );
 create index if not exists audit_log_at_idx on public.audit_log (at desc);
 
--- One timer per team: organisers add minutes, start and stop it. Display only: it does not block answers.
-create table if not exists public.team_timers (
+-- One stopwatch per team. It counts UP from 0: organisers start and stop it, and can log the time with a short note.
+-- Display only: it does not block answers.
+create table if not exists public.team_stopwatch (
   team_id uuid primary key references public.teams(id) on delete cascade,
-  duration_ms bigint not null check (duration_ms > 0),
   status text not null default 'idle' check (status in ('idle', 'running', 'stopped')),
-  deadline_at timestamptz,                       -- while running
-  remaining_ms bigint not null default 0         -- while idle / stopped
+  started_at timestamptz,                        -- while running: when the current stretch began
+  elapsed_ms bigint not null default 0           -- time banked before the current stretch
 );
+create table if not exists public.team_time_log (
+  id bigserial primary key,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  at timestamptz not null default now(),
+  elapsed_ms bigint not null,
+  note text not null default ''
+);
+create index if not exists team_time_log_team_idx on public.team_time_log (team_id, id desc);
 
 -- RLS on, NO policies: only the SECURITY DEFINER functions below can touch these tables.
 alter table public.teams enable row level security;
@@ -179,7 +190,8 @@ alter table public.team_attempts enable row level security;
 alter table public.component_recoveries enable row level security;
 alter table public.user_briefing enable row level security;
 alter table public.audit_log enable row level security;
-alter table public.team_timers enable row level security;
+alter table public.team_stopwatch enable row level security;
+alter table public.team_time_log enable row level security;
 
 -- ===================================== SIGN-UP TRIGGER =====================================
 -- Every new auth user gets a 'team' (player) profile. The role is NEVER read from user-supplied metadata.
@@ -277,6 +289,7 @@ create or replace function public._question_unlocked(p_team uuid, p_idx int) ret
 language plpgsql security definer set search_path = public as $$
 begin
   if not coalesce((select active from public.questions where idx = p_idx), false) then return false; end if;
+  if coalesce((select unlock_all from public.mission_settings), false) then return true; end if;
   if p_idx = 1 then return true; end if;
   return coalesce(public._question_unlocked(p_team, p_idx - 1) and public._question_cleared(p_team, p_idx - 1), false);
 end $$;
@@ -510,63 +523,86 @@ end $$;
 
 -- ===================================== TIMERS =====================================
 
+-- Elapsed time, counting up. A team with no stopwatch yet reads as 'none'.
 create or replace function public._timer_json(p_team uuid) returns jsonb
 language sql security definer set search_path = public as $$
   select coalesce((
     select jsonb_build_object(
-      'status', case when t.status = 'running' and t.deadline_at <= now() then 'finished' else t.status end,
-      'durationMs', t.duration_ms,
-      'remainingMs', case when t.status = 'running' then greatest(0, (extract(epoch from (t.deadline_at - now())) * 1000)::bigint) else t.remaining_ms end,
+      'status', s.status,
+      'elapsedMs', s.elapsed_ms + case when s.status = 'running' then greatest(0, (extract(epoch from (now() - s.started_at)) * 1000)::bigint) else 0 end,
       'serverNow', now())
-    from public.team_timers t where t.team_id = p_team),
-    jsonb_build_object('status', 'none', 'serverNow', now()))
+    from public.team_stopwatch s where s.team_id = p_team),
+    jsonb_build_object('status', 'none', 'elapsedMs', 0, 'serverNow', now()))
 $$;
 
--- The team's own timer (shown on the dashboard).
+-- The team's own stopwatch (shown on the dashboard).
 create or replace function public.get_my_timer() returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
   return public._timer_json(public._need_team());
 end $$;
 
--- Adds minutes to a team's timer (p_team = null means EVERY team). A team with no timer yet gets one of exactly that length.
--- Works while the clock is idle, running, stopped or finished; a negative number takes time away.
-create or replace function public.admin_add_time(p_team uuid, p_minutes numeric) returns void
-language plpgsql security definer set search_path = public as $$
-declare ms bigint;
-begin
-  perform public._need_admin();
-  if p_minutes is null or p_minutes = 0 or abs(p_minutes) > 600 then raise exception 'invalid' using errcode = 'P0001'; end if;
-  ms := round(p_minutes * 60000);
-  update public.team_timers set
-    duration_ms = greatest(1, duration_ms + ms),
-    remaining_ms = case when status = 'running' then remaining_ms else greatest(0, remaining_ms + ms) end,
-    deadline_at = case when status = 'running' then greatest(now(), deadline_at) + (ms || ' milliseconds')::interval else deadline_at end
-  where p_team is null or team_id = p_team;
-  if ms > 0 then
-    insert into public.team_timers (team_id, duration_ms, status, deadline_at, remaining_ms)
-    select t.id, ms, 'idle', null, ms from public.teams t
-    where (p_team is null or t.id = p_team) and not exists (select 1 from public.team_timers x where x.team_id = t.id);
-  end if;
-  perform public._audit('timer_time_added', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || p_minutes || ' min');
-end $$;
+-- Gives every team in scope a stopwatch at 0:00 (idle) if it has none yet. p_team = null means every team.
+create or replace function public._ensure_stopwatch(p_team uuid) returns void
+language sql security definer set search_path = public as $$
+  insert into public.team_stopwatch (team_id)
+  select t.id from public.teams t where p_team is null or t.id = p_team
+  on conflict (team_id) do nothing
+$$;
 
+-- Starts the stopwatch (from 0:00, or carries on from where it was stopped). p_team = null means EVERY team.
 create or replace function public.admin_start_timer(p_team uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform public._need_admin();
-  update public.team_timers set status = 'running', deadline_at = now() + (remaining_ms || ' milliseconds')::interval
-  where status in ('idle', 'stopped') and remaining_ms > 0 and (p_team is null or team_id = p_team);
+  perform public._ensure_stopwatch(p_team);
+  update public.team_stopwatch set status = 'running', started_at = now()
+  where status in ('idle', 'stopped') and (p_team is null or team_id = p_team);
   perform public._audit('timer_started', coalesce((select code from public.teams where id = p_team), 'all teams'));
 end $$;
 
+-- Freezes it. Start carries on from the frozen time.
 create or replace function public.admin_stop_timer(p_team uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform public._need_admin();
-  update public.team_timers set status = 'stopped', remaining_ms = greatest(0, (extract(epoch from (deadline_at - now())) * 1000)::bigint), deadline_at = null
+  update public.team_stopwatch set status = 'stopped',
+    elapsed_ms = elapsed_ms + greatest(0, (extract(epoch from (now() - started_at)) * 1000)::bigint), started_at = null
   where status = 'running' and (p_team is null or team_id = p_team);
   perform public._audit('timer_stopped', coalesce((select code from public.teams where id = p_team), 'all teams'));
+end $$;
+
+-- Back to 0:00, stopped. The log is kept.
+create or replace function public.admin_reset_timer(p_team uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  update public.team_stopwatch set status = 'idle', started_at = null, elapsed_ms = 0 where p_team is null or team_id = p_team;
+  perform public._audit('timer_reset', coalesce((select code from public.teams where id = p_team), 'all teams'));
+end $$;
+
+-- Saves the time as it reads right now, with a short note, without stopping the clock. p_team = null means every team that has a stopwatch.
+create or replace function public.admin_log_time(p_team uuid, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_note text := left(btrim(coalesce(p_note, '')), 200);
+begin
+  perform public._need_admin();
+  if p_team is not null and not exists (select 1 from public.team_stopwatch where team_id = p_team) then
+    raise exception 'not_started' using errcode = 'P0001';
+  end if;
+  insert into public.team_time_log (team_id, elapsed_ms, note)
+  select s.team_id, (public._timer_json(s.team_id) ->> 'elapsedMs')::bigint, v_note
+  from public.team_stopwatch s where p_team is null or s.team_id = p_team;
+  perform public._audit('timer_logged', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || v_note);
+end $$;
+
+-- Every logged time for one team, newest first (the pop-up in the Timer tab).
+create or replace function public.admin_time_log(p_team uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  return coalesce((select jsonb_agg(jsonb_build_object('at', l.at, 'elapsedMs', l.elapsed_ms, 'note', l.note) order by l.id desc)
+                   from public.team_time_log l where l.team_id = p_team), '[]'::jsonb);
 end $$;
 
 -- ===================================== CONTROL (the organiser console) =====================================
@@ -579,11 +615,12 @@ begin
   return coalesce((select jsonb_agg(x order by x ->> 'code') from (
     select jsonb_build_object(
       'id', t.id, 'code', t.code, 'name', t.name, 'college', t.college, 'createdAt', t.created_at,
-      'members', coalesce((select jsonb_agg(jsonb_build_object('name', coalesce(nullif(p.display_name, ''), 'Member')) order by p.created_at)
+      'members', coalesce((select jsonb_agg(jsonb_build_object('name', coalesce(nullif(p.display_name, ''), 'Member'),
+                           'solved', (select count(*) from public.team_progress g where g.team_id = t.id and g.solved_at is not null and g.solved_by = p.id)) order by p.created_at)
                            from public.profiles p where p.team_id = t.id), '[]'::jsonb),
       'solvedCount', (select count(*) from public.team_progress where team_id = t.id and solved_at is not null),
       'lastSolvedAt', (select max(solved_at) from public.team_progress where team_id = t.id and solved_at is not null),
-      'timer', public._timer_json(t.id)
+      'timer', public._timer_json(t.id) || jsonb_build_object('log', coalesce((select jsonb_agg(jsonb_build_object('at', l.at, 'elapsedMs', l.elapsed_ms, 'note', l.note) order by l.id desc) from (select * from public.team_time_log where team_id = t.id order by id desc limit 8) l), '[]'::jsonb))
     ) as x from public.teams t) s), '[]'::jsonb);
 end $$;
 
@@ -614,7 +651,8 @@ end $$;
 
 -- ===================================== CLEAN-UP of removed features (so re-running upgrades an older database) =====================================
 drop table if exists public.announcements, public.round_scores, public.qualification_decisions, public.qualification_settings cascade;
-drop function if exists public.admin_set_timer(uuid, numeric), public.list_announcements(), public.get_my_progress(), public._round_max(int), public.join_team(text, text), public.verify_checkpoint(text), public.admin_stats(), public.admin_approve_recovery(uuid, int),
+drop table if exists public.team_timers cascade;
+drop function if exists public.admin_add_time(uuid, numeric), public.admin_set_timer(uuid, numeric), public.list_announcements(), public.get_my_progress(), public._round_max(int), public.join_team(text, text), public.verify_checkpoint(text), public.admin_stats(), public.admin_approve_recovery(uuid, int),
   public.admin_release_hint(uuid, int), public.admin_reset_team(uuid), public.admin_remove_member(uuid), public.admin_delete_team(uuid),
   public.admin_get_settings(), public.admin_save_settings(jsonb), public.admin_get_gameplay(), public.admin_save_gameplay(jsonb),
   public.admin_list_questions(), public.admin_save_question(int, jsonb), public.admin_check_answer(int, text), public.admin_generate_token(int),
@@ -641,5 +679,5 @@ to authenticated;
 
 -- Organisers (each re-checks is_admin() and raises 'forbidden' for anyone else)
 grant execute on function
-  public.admin_list_teams(), public.admin_add_time(uuid, numeric), public.admin_start_timer(uuid), public.admin_stop_timer(uuid)
+  public.admin_list_teams(), public.admin_start_timer(uuid), public.admin_stop_timer(uuid), public.admin_reset_timer(uuid), public.admin_log_time(uuid, text), public.admin_time_log(uuid)
 to authenticated;

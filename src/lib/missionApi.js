@@ -13,7 +13,7 @@ export const listMySubmissions = () => rpc('list_my_submissions')
 
 
 
-// -> { status: 'none'|'idle'|'running'|'stopped'|'finished', durationMs, remainingMs, serverNow }. Set / started / stopped by organisers.
+// -> { status: 'none'|'idle'|'running'|'stopped', elapsedMs, serverNow }. A stopwatch that counts up; started / stopped by organisers.
 export const getMyTimer = () => rpc('get_my_timer')
 
 // -> { completed, completedAt } for the signed-in player. complete_briefing is idempotent.

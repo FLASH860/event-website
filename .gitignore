@@ -4,3 +4,4 @@
 dist
 admin/dist
 node_modules
+event-private

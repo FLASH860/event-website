@@ -1,0 +1,81 @@
+/* The four hands-on puzzles (src/components/puzzles). Uses the site tokens; green = power on / done, amber = attention. */
+.pz{--glow:var(--ok);margin:1.2rem 0 1.4rem;max-width:56rem}
+.pz__kicker{color:var(--amber);text-transform:uppercase;letter-spacing:.08em;font-size:var(--step--1);margin:0 0 .5rem}
+.pz .small{font-size:.85rem}
+.pz .muted{color:var(--mute)}
+.pz__reveal{margin-top:.8rem;padding:.9rem 1rem;border:1px solid var(--ok);max-width:30rem}
+.pz__word{font:700 clamp(2rem,8vw,3.2rem)/1 var(--font-mono);letter-spacing:.3em;color:var(--ok);text-shadow:0 0 14px rgba(111,191,138,.6);margin:.3rem 0 .8rem}
+.pz__reveal img{display:block;max-width:100%;height:auto}
+.linkbtn{background:none;border:0;padding:0;color:var(--text);font:inherit;text-decoration:underline;text-underline-offset:.25em;cursor:pointer}
+
+/* Q1: jigsaw */
+.jig{display:grid;gap:3px;max-width:46rem;background:var(--line);border:1px solid var(--line);margin:.6rem 0}
+.jig img{width:100%;height:100%;object-fit:fill;display:block;cursor:pointer;user-select:none;-webkit-user-drag:element}
+.jig img:focus-visible{outline:3px solid var(--amber);outline-offset:-3px}
+.jig img.is-held{outline:3px solid var(--amber);outline-offset:-3px;filter:brightness(1.3)}
+.jig--whole{gap:0}
+.jig--whole img{cursor:default}
+
+/* Q2: pipes */
+.pipes{display:grid;grid-template-columns:3.6rem repeat(var(--n),1fr) 3.6rem;gap:3px;width:min(50rem,100%);padding:8px;background:#0c0c0c;border:1px solid var(--line);margin:.6rem 0}
+.pipes--won{border-color:var(--ok)}
+.pz-end{align-self:center;text-align:center;font:700 11px/1.25 var(--font-mono);color:var(--amber)}
+.pz-end.is-live{color:var(--ok);text-shadow:0 0 8px rgba(111,191,138,.7)}
+.pipe{aspect-ratio:1;background:var(--surface);border:1px solid #262626;padding:0;cursor:pointer;min-width:0}
+.pipe:disabled{cursor:default}
+.pipe svg{width:100%;height:100%;display:block}
+.pipe line{stroke:#6d6d6d;stroke-width:16}
+.pipe circle{fill:#6d6d6d}
+.pipe.is-live line,.pipe.is-live circle{stroke:var(--ok);fill:var(--ok)}
+.pipe.is-live line{filter:drop-shadow(0 0 4px rgba(111,191,138,.6))}
+.pipe:focus-visible{outline:3px solid var(--amber);outline-offset:-3px}
+
+/* Q3: reboot sequence */
+.pz--reboot{display:flex;gap:24px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap-reverse}
+.pz-reboot__main{flex:1 1 20rem;min-width:0}
+.pz-reboot__tag{flex:0 0 auto;width:260px;margin-left:auto;position:sticky;top:12px}
+.pz-reboot__tag img{display:block;width:100%;height:auto}
+.pz-letters{display:flex;gap:8px;margin:.5rem 0}
+.pz-letters span{width:2.6rem;height:3.2rem;display:grid;place-items:center;border:1px solid var(--line);background:var(--surface);font:700 1.6rem var(--font-mono);color:var(--mute)}
+.pz-letters span.is-got{color:var(--ok);border-color:var(--ok);text-shadow:0 0 10px rgba(111,191,138,.6)}
+.simon{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:20rem;margin:.8rem 0}
+.spad{aspect-ratio:1.4;border:2px solid #0006;background:color-mix(in srgb,var(--c) 28%,#0c0c0c);color:#fff9;font:700 .85rem var(--font-mono);cursor:pointer;transition:background .08s,box-shadow .08s}
+.spad.is-lit{background:var(--c);color:#000;box-shadow:0 0 28px 6px var(--c)}
+.spad:disabled{cursor:default;opacity:1}
+.pz-type{display:flex;gap:8px;max-width:20rem;margin:.4rem 0}
+.pz-type input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.15em;background:var(--surface);color:var(--text);border:1px solid var(--line);padding:.5rem .7rem;font:inherit}
+.simon.is-ready,.pz-type.is-ready{animation:pz-ready 1.6s ease-in-out infinite}
+.simon.is-ready{padding:8px;outline:1px solid rgba(111,191,138,.5)}
+@keyframes pz-ready{0%,100%{box-shadow:0 0 0 0 rgba(111,191,138,0)}50%{box-shadow:0 0 18px 4px rgba(111,191,138,.55)}}
+@media (prefers-reduced-motion:reduce){.simon.is-ready,.pz-type.is-ready{animation:none;box-shadow:0 0 12px 2px rgba(111,191,138,.5)}.spad{transition:none}}
+
+/* Q4: defuse */
+.mods{display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:12px;margin:.8rem 0}
+.mod{border:1px solid var(--line);background:var(--surface);padding:12px 14px}
+.mod h3{margin:0 0 .4rem;font-size:1rem;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.pz-badge{font:700 11px var(--font-mono);color:var(--err);border:1px solid var(--err);padding:1px 6px}
+.pz-badge.is-ok{color:var(--ok);border-color:var(--ok)}
+.rule{font-size:.9rem;color:var(--mute);margin:.2rem 0 .8rem}
+.wires{display:flex;flex-direction:column;gap:10px;margin-left:1.8rem}
+.wire5{height:18px;border:0;background:var(--c);cursor:pointer;position:relative;padding:0}
+.wire5 span{position:absolute;left:-1.6rem;top:-4px;color:var(--mute);font:12px var(--font-mono)}
+.wire5.is-cut{background:linear-gradient(90deg,var(--c) 0 38%,transparent 38% 62%,var(--c) 62% 100%)}
+.wire5:disabled{cursor:default}
+.keys{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:12rem}
+.key{padding:14px;background:#222;color:var(--text);border:1px solid var(--line);font:700 1.3rem var(--font-mono);cursor:pointer}
+.key.is-hit{border-color:var(--ok);color:var(--ok)}
+.dials{display:flex;gap:12px}
+.dial{display:flex;flex-direction:column;align-items:center;gap:4px}
+.dial b{font:700 1.8rem var(--font-mono);color:var(--amber)}
+.dial button{width:2.6rem;min-height:2.2rem;background:#222;color:var(--text);border:1px solid var(--line);cursor:pointer;font-size:1.1rem}
+.sws{display:flex;gap:8px;flex-wrap:wrap}
+.sw{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;color:var(--mute);font:12px var(--font-mono);cursor:pointer}
+.sw i{width:2rem;height:3.2rem;background:#222;border:1px solid var(--line);position:relative;display:block}
+.sw i::after{content:'';position:absolute;left:3px;right:3px;height:46%;background:#6d6d6d;bottom:3px}
+.sw.is-on i::after{bottom:auto;top:3px;background:var(--ok)}
+.key:disabled,.dial button:disabled,.sw:disabled{cursor:default}
+.snakebox{border:1px solid var(--ok);padding:14px;max-width:30rem;margin-top:12px}
+.snakebox canvas{width:100%;max-width:320px;height:auto;display:block;border:1px solid var(--line);background:#0c0c0c;image-rendering:pixelated;margin-bottom:.5rem}
+.dpad{display:flex;flex-direction:column;align-items:center;gap:4px;margin:.6rem 0;max-width:12rem}
+.dpad div{display:flex;gap:4px}
+.dpad button{width:3rem;height:3rem;background:#222;color:var(--text);border:1px solid var(--line);font-size:1.1rem;cursor:pointer}

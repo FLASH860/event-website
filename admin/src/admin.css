@@ -29,3 +29,13 @@ tr.is-open>*{background:var(--surface-2)}
   .admin__main{padding:0}
   .qrcard{break-inside:avoid;border:1px solid #000}
 }
+
+.row--click { cursor: pointer; }
+.row--click:hover { background: rgba(255, 255, 255, 0.04); }
+.linklike { background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; text-decoration: underline dotted; }
+.memberlist { margin: 0.5rem 0 0; padding-left: 1.2rem; }
+.loglist { max-height: 55vh; overflow-y: auto; margin-bottom: 1rem; }
+.loglist li { margin-bottom: .35rem; }
+.teamdialog { min-width: min(92vw, 26rem); padding: 1.5rem; border: 1px solid var(--line); background: var(--surface); color: inherit; }
+.teamdialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+.teamdialog__title { margin: 0 0 0.25rem; }

@@ -4,6 +4,7 @@ import { submitAnswer } from '../../lib/missionApi'
 import { QuestionBody, AnswerForm } from './MissionParts'
 import AnswerFeedback from './AnswerFeedback'
 import MissionSequence, { Intel } from './MissionSequence'
+import Puzzle from '../puzzles'
 
 // The working surface of the dashboard: read the question, answer it, see the server's verdict.
 // Logic is unchanged from the old Question page (server validates; success is shown only after the server accepts).
@@ -46,6 +47,7 @@ export default function QuestionPanel({ state, setState, sel, onProceed }) {
       {q.status === 'solved'
         ? <MissionSequence q={q} total={MISSION.questionCount} fresh={fb?.kind === 'correct'} onProceed={onProceed} />
         : <>
+            <Puzzle index={q.index} />
             <AnswerForm key={q.index} question={q} onSubmit={onSubmit} onEmpty={() => say({ kind: 'empty' })} onEdit={() => fb?.kind === 'empty' && setFb(null)} busy={busy} describedBy="answer-feedback" />
             {q.attemptsAllowed != null && <p className="muted small">Attempts used: {q.attemptsUsed} of {q.attemptsAllowed}</p>}
             <AnswerFeedback id="answer-feedback" item={busy ? { kind: 'verifying' } : fb} />

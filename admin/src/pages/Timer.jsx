@@ -1,56 +1,91 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loading, Status } from '../../../src/components/ui'
 import { api } from '../api'
-import { usePoll, useTick, timeLeft, mmss } from '../hooks'
+import { usePoll, useTick, elapsedNow, mmss } from '../hooks'
 import { Head, ErrorNote, useFlash } from '../bits'
 
-const TONE = { running: 'ok', finished: 'warn', stopped: 'neutral', idle: 'neutral' }
+const TONE = { running: 'ok', stopped: 'neutral', idle: 'neutral' }
 
-// Add minutes to a team's clock (or every team's), then start and stop it. Teams see their own countdown on their dashboard.
+// A stopwatch per team that counts UP from 0:00. Start and stop it, or log the time with a short note without stopping it.
+// Teams see their own elapsed time on their dashboard.
 export default function Timer() {
   const { data: rows, error, at, reload } = usePoll(api.teams, 4000)
   useTick()
   const { run, node } = useFlash()
-  const [allMin, setAllMin] = useState('10')
-  const [mins, setMins] = useState({}) // per team, while typing
-  const act = async (fn, ok) => { await run(fn, ok); reload() }
+  const [allNote, setAllNote] = useState('')
+  const [notes, setNotes] = useState({}) // per team, while typing
+  const [logsFor, setLogsFor] = useState(null) // the team whose logs are open in the pop-up
+  const act = async (fn, ok) => { const r = await run(fn, ok); reload(); return r }
+  const logOne = async (t) => {
+    await act(() => api.logTime(t.id, notes[t.id] || ''), `Logged ${t.code} at ${mmss(elapsedNow(t.timer, at))}.`)
+    setNotes((n) => ({ ...n, [t.id]: '' }))
+  }
+  const open = logsFor && (rows || []).find((t) => t.id === logsFor)
 
   return (
     <>
-      <Head kicker="Control" title="Timer">Add minutes, then start. Stop freezes the clock; start carries on from where it stopped. Adding time works any time, even while a clock is running. A negative number takes time off.</Head>
+      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Reset puts it back to 0:00 and keeps the logs.</Head>
       <ErrorNote error={error} />
       {node}
       <section className="panel">
         <h2 className="panel__title">Every team</h2>
         <div className="btn-row">
-          <label className="row">Minutes <input type="number" step="any" value={allMin} onChange={(e) => setAllMin(e.target.value)} style={{ width: '6rem' }} /></label>
-          <button type="button" className="btn btn--ghost btn--sm" disabled={!allMin} onClick={() => act(() => api.addTime(null, Number(allMin)), `Added ${allMin} min to every team.`)}>Add to all</button>
-          <button type="button" className="btn btn--primary btn--sm" onClick={() => act(() => api.startTimer(null), 'Started every team that has time.')}>Start all</button>
+          <button type="button" className="btn btn--primary btn--sm" onClick={() => act(() => api.startTimer(null), 'Started every team.')}>Start all</button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => act(() => api.stopTimer(null), 'Stopped every running clock.')}>Stop all</button>
+          <label className="sr" htmlFor="all-note">Note for every team</label>
+          <input id="all-note" type="text" maxLength={200} placeholder="Note (optional)" value={allNote} onChange={(e) => setAllNote(e.target.value)} style={{ width: '14rem' }} />
+          <button type="button" className="btn btn--ghost btn--sm" onClick={async () => { await act(() => api.logTime(null, allNote), 'Logged every team.'); setAllNote('') }}>Log all</button>
         </div>
       </section>
 
       {!rows ? <Loading /> : (
-        <div className="tablewrap"><table className="table table--teams"><caption className="sr">Timers by team</caption>
-          <thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Time left</th><th scope="col">Add minutes</th><th scope="col">Clock</th></tr></thead>
-          <tbody>{rows.length === 0 && <tr><td colSpan="5" className="muted">No teams yet.</td></tr>}
+        <div className="tablewrap"><table className="table table--teams"><caption className="sr">Stopwatches by team</caption>
+          <thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Time</th><th scope="col">Clock</th><th scope="col">Log the time</th><th scope="col">Logs</th></tr></thead>
+          <tbody>{rows.length === 0 && <tr><td colSpan="6" className="muted">No teams yet.</td></tr>}
             {rows.map((t) => {
               const none = t.timer.status === 'none', running = t.timer.status === 'running'
-              const v = mins[t.id] ?? '5'
               return (
                 <tr key={t.id}>
                   <th scope="row">{t.name} <span className="mono muted">{t.code}</span></th>
-                  <td>{none ? <span className="muted">no time yet</span> : <Status tone={TONE[t.timer.status]}>{t.timer.status}</Status>}</td>
-                  <td className="mono">{mmss(timeLeft(t.timer, at))}</td>
+                  <td>{none ? <span className="muted">not started</span> : <Status tone={TONE[t.timer.status]}>{t.timer.status}</Status>}</td>
+                  <td className="mono">{none ? '00:00' : mmss(elapsedNow(t.timer, at))}</td>
                   <td><div className="btn-row">
-                    <label className="sr" htmlFor={`m${t.id}`}>Minutes to add for {t.name}</label>
-                    <input id={`m${t.id}`} type="number" step="any" value={v} onChange={(e) => setMins((m) => ({ ...m, [t.id]: e.target.value }))} style={{ width: '5rem' }} />
-                    <button type="button" className="btn btn--ghost btn--sm" disabled={!v} onClick={() => act(() => api.addTime(t.id, Number(v)), `Added ${v} min to ${t.code}.`)}>Add</button></div></td>
+                    <button type="button" className="btn btn--primary btn--sm" disabled={running} onClick={() => act(() => api.startTimer(t.id), `Started ${t.code}.`)}>Start</button>
+                    <button type="button" className="btn btn--ghost btn--sm" disabled={!running} onClick={() => act(() => api.stopTimer(t.id), `Stopped ${t.code}.`)}>Stop</button>
+                    <button type="button" className="btn btn--ghost btn--sm" disabled={none} onClick={() => { if (window.confirm(`Put ${t.name}'s clock back to 0:00?`)) act(() => api.resetTimer(t.id), `Reset ${t.code}.`) }}>Reset</button></div></td>
                   <td><div className="btn-row">
-                    <button type="button" className="btn btn--primary btn--sm" disabled={none || running || t.timer.remainingMs <= 0} onClick={() => act(() => api.startTimer(t.id), `Started ${t.code}.`)}>Start</button>
-                    <button type="button" className="btn btn--ghost btn--sm" disabled={!running} onClick={() => act(() => api.stopTimer(t.id), `Stopped ${t.code}.`)}>Stop</button></div></td>
+                    <label className="sr" htmlFor={`n${t.id}`}>Note for {t.name}</label>
+                    <input id={`n${t.id}`} type="text" maxLength={200} placeholder="Note (optional)" value={notes[t.id] ?? ''} onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !none) logOne(t) }} style={{ width: '12rem' }} />
+                    <button type="button" className="btn btn--ghost btn--sm" disabled={none} onClick={() => logOne(t)}>Log</button></div></td>
+                  <td><button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setLogsFor(t.id)}>Check logs</button></td>
                 </tr>)
             })}</tbody></table></div>)}
+      {open && <LogDialog team={open} onClose={() => setLogsFor(null)} />}
     </>
+  )
+}
+
+// Every logged time for one team, newest first. Loads the full list when it opens (the table only polls the latest few).
+function LogDialog({ team, onClose }) {
+  const ref = useRef(null)
+  const [logs, setLogs] = useState(null)
+  const [err, setErr] = useState(null)
+  useEffect(() => { const d = ref.current; if (d && !d.open) d.showModal() }, [])
+  useEffect(() => {
+    let live = true
+    api.timeLog(team.id).then((l) => { if (live) setLogs(l) }).catch((e) => { if (live) { setErr(e.message); setLogs(team.timer.log || []) } }) // fall back to the latest few
+    return () => { live = false }
+  }, [team.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <dialog ref={ref} className="teamdialog" onClose={onClose} onClick={(e) => { if (e.target === ref.current) ref.current.close() }} aria-labelledby="logdialog-title">
+      <h2 id="logdialog-title" className="teamdialog__title">Logs: {team.name}</h2>
+      <p className="muted small">{team.code}{team.college && ` · ${team.college}`}</p>
+      {err && <p className="muted small">Showing only the latest entries ({err}).</p>}
+      {!logs ? <Loading label="Loading logs…" /> : logs.length === 0 ? <p className="muted">No logs yet.</p> : (
+        <ul className="memberlist loglist">{logs.map((l, i) => (
+          <li key={i}><span className="mono">{mmss(l.elapsedMs)}</span> {l.note || <span className="muted">no note</span>} <span className="mono muted small">{new Date(l.at).toLocaleTimeString()}</span></li>))}</ul>)}
+      <button type="button" className="btn btn--ghost btn--sm" onClick={() => ref.current.close()}>Close</button>
+    </dialog>
   )
 }

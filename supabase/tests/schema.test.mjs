@@ -36,7 +36,7 @@ async function as(who, query, params = [], role = 'authenticated') {
 const rpc = (who, fn, ...args) => as(who, `select public.${fn}(${args.map((_, i) => '$' + (i + 1)).join(',')}) as r`, args.map((a) => (typeof a === 'object' && a !== null ? JSON.stringify(a) : a)))
 
 // ---- nothing is readable or writable directly
-for (const t of ['question_secrets', 'profiles', 'teams', 'team_attempts', 'audit_log', 'components', 'questions', 'team_timers', 'team_progress']) {
+for (const t of ['question_secrets', 'profiles', 'teams', 'team_attempts', 'audit_log', 'components', 'questions', 'team_stopwatch', 'team_time_log', 'team_progress']) {
   const r = await as('p1', `select * from public.${t}`)
   ok(`player cannot SELECT ${t} directly`, !r.ok && /permission denied/.test(r.err), r.err)
 }
@@ -50,7 +50,7 @@ for (const fn of ['_need_admin()', "_answer_hash('a','b')", "set_question(1,'t',
   const r = await as('admin', `select public.${fn.includes('(') ? fn : fn + '(\'x\')'}`)
   ok(`not callable from the API even by an organiser: ${fn}`, !r.ok, JSON.stringify(r))
 }
-for (const q of ['admin_list_teams()', "admin_add_time(null, 5)", 'admin_start_timer(null)', 'admin_stop_timer(null)']) {
+for (const q of ['admin_list_teams()', "admin_log_time(null, 'x')", 'admin_start_timer(null)', 'admin_stop_timer(null)', 'admin_reset_timer(null)']) {
   const r = await as('p1', `select public.${q}`)
   ok(`player blocked from ${q}`, !r.ok && /forbidden/.test(r.err), r.err)
 }
@@ -75,6 +75,8 @@ r = await rpc('p2', 'get_mission_state'); ok('older session can no longer read t
 r = await rpc('p2', 'login_with_code', team.joinCode, ''); ok('empty name rejected', r.v.reason === 'invalid_name')
 
 // ---- missions: fresh database ships a sample Mission 1 (MISSION); real questions are authored in the SQL editor
+ok('questions are all open by default (unlock_all)', (await db.query(`select unlock_all from public.mission_settings`)).rows[0].unlock_all === true)
+await db.exec(`update public.mission_settings set unlock_all = false`)   // the next checks are about the sequential game
 r = await rpc('p1', 'get_mission_state')
 ok('sample Mission 1 is open, Missions 2-4 locked', r.v.questions[0].status === 'available' && r.v.questions.slice(1).every((q) => q.status === 'locked'), JSON.stringify(r.v.questions.map((q) => q.status)))
 ok('sample answer is not in the payload', !/MISSION$/i.test(JSON.stringify(r.v).replace('Type MISSION to solve it', '')))
@@ -101,6 +103,17 @@ r = await rpc('p3', 'list_my_submissions'); ok('submissions listed with who', r.
 // ---- teams are isolated
 r = await rpc('solo', 'create_team', 'Beta', '', 'Sol'); ok('second team created', r.v.ok)
 r = await rpc('solo', 'get_mission_state'); ok('Beta has fresh progress', r.v.questions[1].status === 'locked' && r.v.solvedCount === 0)
+// ---- unlock_all: every active question is open from the start, answers still checked
+await db.exec(`update public.mission_settings set unlock_all = true`)
+await db.exec(`select public.set_question(3, 'Q3', 'third', array['third'], 'hint3')`)
+r = await rpc('solo', 'get_mission_state'); ok('unlock_all: active questions open for a team that solved nothing, inactive Q4 stays locked', r.v.questions.map((q) => q.status).join() === 'available,available,available,locked', JSON.stringify(r.v.questions.map((q) => q.status)))
+r = await rpc('solo', 'submit_answer', 3, 'wrong'); ok('unlock_all: can answer Q3 first (wrong answer still wrong)', r.v.result === 'incorrect', JSON.stringify(r.v))
+await db.exec(`update public.team_attempts set submitted_at = now() - interval '10 seconds'`)
+r = await rpc('solo', 'submit_answer', 3, 'third'); ok('unlock_all: right answer to Q3 first is accepted', r.v.result === 'correct' && r.v.state.questions[2].hint.text === 'hint3', JSON.stringify(r.v))
+await db.exec(`update public.mission_settings set unlock_all = false`)
+await db.exec(`delete from public.team_progress where team_id = (select id from public.teams where name = 'Beta')`)
+await db.exec(`delete from public.team_attempts`)
+
 
 // ---- window
 await db.exec(`update public.gameplay_settings set override_mode = 'closed'`)
@@ -115,34 +128,34 @@ const tid = (await db.query(`select id from public.teams where name='Alpha'`)).r
 r = await rpc('admin', 'admin_list_teams'); const alpha = r.v.find((t) => t.name === 'Alpha')
 ok('organiser sees teams with member names and progress', r.v.length === 2 && alpha.members.length === 4 && alpha.solvedCount === 1 && alpha.lastSolvedAt, JSON.stringify(alpha).slice(0, 300))
 ok('team list leaks no emails or join codes', !/@x\.com|joinCode/.test(JSON.stringify(r.v)))
-r = await rpc('p1', 'get_my_timer'); ok('no timer yet', r.v.status === 'none')
-r = await rpc('admin', 'admin_add_time', null, 10); ok('add 10 min to every team (creates the timers)', r.ok, r.err)
-r = await rpc('p1', 'get_my_timer'); ok('team sees an idle timer with the 10 minutes', r.v.status === 'idle' && r.v.remainingMs === 600000, JSON.stringify(r.v))
-r = await rpc('admin', 'admin_add_time', tid, 0); ok('zero minutes rejected', !r.ok && /invalid/.test(r.err))
-await rpc('admin', 'admin_add_time', tid, 5)
-r = await rpc('p1', 'get_my_timer'); ok('adding time to an idle clock extends it (10 + 5 = 15 min)', r.v.status === 'idle' && r.v.remainingMs === 900000, JSON.stringify(r.v))
-r = await rpc('solo', 'get_my_timer'); ok('adding to one team leaves the others alone', r.v.remainingMs === 600000)
+r = await rpc('p1', 'get_my_timer'); ok('no stopwatch yet', r.v.status === 'none' && r.v.elapsedMs === 0)
+r = await rpc('admin', 'admin_log_time', tid, 'too early'); ok('cannot log a team that has no stopwatch', !r.ok && /not_started/.test(r.err), r.err)
 await rpc('admin', 'admin_start_timer', tid)
-r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting down', r.v.status === 'running' && r.v.remainingMs <= 900000 && r.v.remainingMs > 890000, JSON.stringify(r.v))
-r = await rpc('solo', 'get_my_timer'); ok('start for one team leaves the other idle', r.v.status === 'idle')
-await db.exec(`update public.team_timers set deadline_at = now() + interval '5 minutes' where team_id = '${tid}'`)
-await rpc('admin', 'admin_add_time', tid, 2)
-r = await rpc('p1', 'get_my_timer'); ok('adding time to a RUNNING clock pushes the finish out (5 + 2 = 7 min)', r.v.status === 'running' && r.v.remainingMs > 415000 && r.v.remainingMs <= 420000, JSON.stringify(r.v))
+r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting up from 0', r.v.status === 'running' && r.v.elapsedMs >= 0 && r.v.elapsedMs < 5000, JSON.stringify(r.v))
+r = await rpc('solo', 'get_my_timer'); ok('start for one team leaves the other without a clock', r.v.status === 'none')
+await db.exec(`update public.team_stopwatch set started_at = now() - interval '90 seconds' where team_id = '${tid}'`)
+r = await rpc('p1', 'get_my_timer'); ok('a running stopwatch counts up (90 s)', r.v.status === 'running' && r.v.elapsedMs >= 90000 && r.v.elapsedMs < 95000, JSON.stringify(r.v))
+r = await rpc('admin', 'admin_log_time', tid, '  Found the first part  '); ok('log the time with a note', r.ok, r.err)
+r = await rpc('p1', 'get_my_timer'); ok('logging does not stop the clock', r.v.status === 'running')
 await rpc('admin', 'admin_stop_timer', tid)
 r = await rpc('p1', 'get_my_timer'); const frozen = r.v
-ok('stop freezes the remaining time', frozen.status === 'stopped' && frozen.remainingMs > 415000 && frozen.remainingMs <= 420000, JSON.stringify(frozen))
+ok('stop freezes the elapsed time', frozen.status === 'stopped' && frozen.elapsedMs >= 90000 && frozen.elapsedMs < 95000, JSON.stringify(frozen))
+await db.exec(`update public.team_stopwatch set elapsed_ms = 60000 where team_id = '${tid}'`)
 await rpc('admin', 'admin_start_timer', tid)
-r = await rpc('p1', 'get_my_timer'); ok('start again resumes from the frozen time', r.v.status === 'running' && r.v.remainingMs <= frozen.remainingMs)
-await db.exec(`update public.team_timers set deadline_at = now() - interval '1 second' where team_id = '${tid}'`)
-r = await rpc('p1', 'get_my_timer'); ok('a timer that ran out reads as finished', r.v.status === 'finished' && r.v.remainingMs === 0)
-await rpc('admin', 'admin_add_time', tid, 3)
-r = await rpc('p1', 'get_my_timer'); ok('adding time to a finished clock gives it fresh time', r.v.status === 'running' && r.v.remainingMs > 175000 && r.v.remainingMs <= 180000, JSON.stringify(r.v))
-await rpc('admin', 'admin_add_time', tid, -1)
-r = await rpc('p1', 'get_my_timer'); ok('a negative number takes time away', r.v.remainingMs > 115000 && r.v.remainingMs <= 120000, JSON.stringify(r.v))
+r = await rpc('p1', 'get_my_timer'); ok('start again carries on from the frozen time', r.v.status === 'running' && r.v.elapsedMs >= 60000 && r.v.elapsedMs < 65000, JSON.stringify(r.v))
 await rpc('admin', 'admin_start_timer', null); await rpc('admin', 'admin_stop_timer', null)
 r = await rpc('solo', 'get_my_timer'); ok('start/stop with no team applies to every team', r.v.status === 'stopped')
-r = await rpc('admin', 'admin_list_teams'); ok('organiser list carries each timer', r.v.every((t) => t.timer && t.timer.status))
-r = await as('p1', `select public.admin_add_time(null, 5)`); ok('player cannot touch timers', !r.ok && /forbidden/.test(r.err))
+await rpc('admin', 'admin_log_time', null, 'everyone')
+r = await rpc('admin', 'admin_list_teams'); const a2 = r.v.find((t) => t.name === 'Alpha'), b2 = r.v.find((t) => t.name === 'Beta')
+ok('organiser list carries each stopwatch and its log (newest first, note trimmed)', a2.timer.log.length === 2 && a2.timer.log[0].note === 'everyone' && a2.timer.log[1].note === 'Found the first part' && a2.timer.log[1].elapsedMs >= 90000 && b2.timer.log.length === 1, JSON.stringify(a2.timer))
+await rpc('admin', 'admin_reset_timer', tid)
+r = await rpc('p1', 'get_my_timer'); ok('reset sets it back to 0:00, stopped', r.v.status === 'idle' && r.v.elapsedMs === 0, JSON.stringify(r.v))
+r = await rpc('admin', 'admin_list_teams'); ok('reset keeps the log', r.v.find((t) => t.name === 'Alpha').timer.log.length === 2)
+for (let i = 0; i < 9; i++) await rpc('admin', 'admin_log_time', tid, 'extra ' + i)
+r = await rpc('admin', 'admin_time_log', tid); ok('the pop-up gets EVERY log for a team, newest first (not just the latest 8)', r.v.length === 11 && r.v[0].note === 'extra 8' && r.v[10].note === 'Found the first part' && r.v.every((l) => typeof l.elapsedMs === 'number'), JSON.stringify(r.v).slice(0, 200))
+r = await rpc('admin', 'admin_time_log', U.p1); ok('a team with no logs gives an empty list', r.ok && r.v.length === 0, JSON.stringify(r))
+r = await as('p1', `select public.admin_time_log('${tid}')`); ok('player cannot read the logs', !r.ok && /forbidden/.test(r.err))
+r = await as('p1', `select public.admin_log_time(null, 'x')`); ok('player cannot touch timers', !r.ok && /forbidden/.test(r.err))
 r = await rpc('admin', 'get_mission_state'); ok('an organiser has no team, so no mission', !r.ok && /no_team/.test(r.err))
 
 // ---- leaving
@@ -163,7 +176,7 @@ if (bak) {
   await old.exec(fs.readFileSync(bak, 'utf8'))
   await old.exec(sql)
   const left = (await old.query(`select count(*)::int c from information_schema.tables where table_schema='public' and table_name in ('announcements','round_scores','qualification_settings')`)).rows[0].c
-  const fns = (await old.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'admin\\_%' and p.proname not in ('admin_list_teams','admin_add_time','admin_start_timer','admin_stop_timer')`)).rows[0].c
+  const fns = (await old.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'admin\\_%' and p.proname not in ('admin_list_teams','admin_start_timer','admin_stop_timer','admin_reset_timer','admin_log_time','admin_time_log')`)).rows[0].c
   ok('upgrade from the old schema drops removed tables and functions', left === 0 && fns === 0, `tables ${left}, functions ${fns}`)
 }
 process.exit(fail ? 1 : 0)

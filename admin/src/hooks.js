@@ -34,15 +34,15 @@ export const ago = (iso) => {
   return `${Math.floor(s / 86400)}d ago`
 }
 
-// Remaining time of a timer as shown right now: a running timer counts down from the moment its data arrived.
-export const timeLeft = (timer, at) => {
+// Elapsed time of a stopwatch as shown right now: a running one counts up from the moment its data arrived.
+export const elapsedNow = (timer, at) => {
   if (!timer || timer.status === 'none') return null
-  const base = timer.remainingMs ?? 0
-  return timer.status === 'running' ? Math.max(0, base - (Date.now() - at)) : base
+  const base = timer.elapsedMs ?? 0
+  return timer.status === 'running' ? base + Math.max(0, Date.now() - at) : base
 }
 export const mmss = (ms) => {
   if (ms == null) return '—'
-  const t = Math.ceil(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60
+  const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60
   const p = (n) => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`
 }

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Loading, Status } from '../../../src/components/ui'
 import { api } from '../api'
-import { usePoll, useTick, timeLeft, mmss } from '../hooks'
+import { usePoll, useTick, elapsedNow, mmss } from '../hooks'
 import { Head, ErrorNote } from '../bits'
 
 const TONE = { running: 'ok', finished: 'warn', stopped: 'neutral', idle: 'neutral' }
@@ -20,14 +20,14 @@ export default function Leaderboard() {
       <ErrorNote error={error} />
       {!data ? <Loading /> : (
         <div className="tablewrap"><table className="table table--teams"><caption className="sr">Leaderboard</caption>
-          <thead><tr><th scope="col">Rank</th><th scope="col">Team</th><th scope="col">Missions solved</th><th scope="col">Last solved</th><th scope="col">Timer</th></tr></thead>
+          <thead><tr><th scope="col">Rank</th><th scope="col">Team</th><th scope="col">Missions solved</th><th scope="col">Last solved</th><th scope="col">Time</th></tr></thead>
           <tbody>{rows.length === 0 && <tr><td colSpan="5" className="muted">No teams yet.</td></tr>}
             {rows.map((t, i) => (
               <tr key={t.id}><td className="mono">{i + 1}</td>
                 <th scope="row">{t.name} <span className="mono muted">{t.code}</span></th>
                 <td><span className="mono">{t.solvedCount}/4</span></td>
                 <td className="mono">{t.lastSolvedAt ? new Date(t.lastSolvedAt).toLocaleTimeString() : '—'}</td>
-                <td>{t.timer.status === 'none' ? <span className="muted">—</span> : <><Status tone={TONE[t.timer.status]}>{t.timer.status}</Status> <span className="mono">{mmss(timeLeft(t.timer, at))}</span></>}</td></tr>))}</tbody></table></div>)}
+                <td>{t.timer.status === 'none' ? <span className="muted">—</span> : <><Status tone={TONE[t.timer.status]}>{t.timer.status}</Status> <span className="mono">{mmss(elapsedNow(t.timer, at))}</span></>}</td></tr>))}</tbody></table></div>)}
     </>
   )
 }
