@@ -7,6 +7,7 @@ import QuestionPanel from '../../components/mission/QuestionPanel'
 import MissionLog from '../../components/mission/MissionLog'
 import TeamIntro from '../../components/mission/TeamIntro'
 import TeamStrip from '../../components/TeamStrip'
+import { startMyTimer } from '../../lib/missionApi'
 
 // Mission screen: ONE composition. Header line (which stage) -> question (primary) beside the four-question log -> compact status.
 // Official stage status, robot-component recovery and detailed scores live on the Overview page, not here.
@@ -15,6 +16,9 @@ export default function TeamDashboard() {
   const { mission, briefingActive } = useOutletContext()
   const [sel, setSel] = useState(null)
   const st = mission.state
+  // The team's clock starts the first time anyone sees the first question (server ignores it once started or stopped).
+  const open = !!st && !briefingActive
+  useEffect(() => { if (open) startMyTimer().catch(() => {}) }, [open])
   useEffect(() => {
     if (!st || sel != null) return
     const want = Number(new URLSearchParams(window.location.search).get('q'))

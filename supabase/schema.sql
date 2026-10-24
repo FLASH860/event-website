@@ -505,7 +505,7 @@ begin
                    from public.team_attempts a left join public.profiles p on p.id = a.user_id where a.team_id = t), '[]'::jsonb);
 end $$;
 
--- Mission briefing completion (per player). Presentation state only: never starts a timer or unlocks anything.
+-- Mission briefing completion (per player). Presentation state only: never starts a timer or unlocks anything (the dashboard does that via start_my_timer).
 create or replace function public.get_briefing_status() returns jsonb
 language sql security definer set search_path = public as $$
   select jsonb_build_object('completed', b.user_id is not null, 'completedAt', b.completed_at)
@@ -540,6 +540,17 @@ create or replace function public.get_my_timer() returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
   return public._timer_json(public._need_team());
+end $$;
+
+-- Called when a team member opens the first question (the dashboard after the briefing). Starts the team's stopwatch the first time only:
+-- a running or organiser-stopped stopwatch is left exactly as it is.
+create or replace function public.start_my_timer() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare t uuid := public._need_team();
+begin
+  perform public._ensure_stopwatch(t);
+  update public.team_stopwatch set status = 'running', started_at = now() where team_id = t and status = 'idle' and elapsed_ms = 0;
+  return public._timer_json(t);
 end $$;
 
 -- Gives every team in scope a stopwatch at 0:00 (idle) if it has none yet. p_team = null means every team.
@@ -673,7 +684,7 @@ grant execute on function public.get_gameplay_status() to anon, authenticated;
 -- Signed-in players
 grant execute on function
   public.get_my_profile(), public.set_display_name(text), public.create_team(text, text, text), public.login_with_code(text, text), public.leave_team(),
-  public.get_mission_state(), public.submit_answer(int, text), public.list_my_submissions(), public.get_my_timer(),
+  public.get_mission_state(), public.submit_answer(int, text), public.list_my_submissions(), public.get_my_timer(), public.start_my_timer(),
   public.get_briefing_status(), public.complete_briefing()
 to authenticated;
 
