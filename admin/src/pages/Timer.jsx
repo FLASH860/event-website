@@ -15,33 +15,30 @@ export default function Timer() {
   const [allNote, setAllNote] = useState('')
   const [notes, setNotes] = useState({}) // per team, while typing
   const [mins, setMins] = useState({}) // minutes to add or subtract, per team ('all' for every team)
-  const [signs, setSigns] = useState({}) // + or − picked but not applied yet, per team
   const [logsFor, setLogsFor] = useState(null) // the team whose logs are open in the pop-up
   const act = async (fn, ok) => { const r = await run(fn, ok); reload(); return r }
   const logOne = async (t) => {
     await act(() => api.logTime(t.id, notes[t.id] || ''), `Logged ${t.code} at ${mmss(elapsedNow(t.timer, at))}.`)
     setNotes((n) => ({ ...n, [t.id]: '' }))
   }
-  const adjust = async (t, sign) => {
-    const key = t ? t.id : 'all', m = Number(mins[key] ?? 1)
-    if (!(m > 0)) return run(async () => { throw new Error('Enter a number of minutes above 0.') })
-    const label = `${sign > 0 ? 'Added' : 'Subtracted'} ${m} min ${t ? `for ${t.code}` : 'for every running or stopped team'}.`
-    const r = await act(() => api.adjustTime(t ? t.id : null, sign * Math.round(m * 60)), label)
-    setSigns((x) => ({ ...x, [key]: 0 }))
+  const adjust = async (t) => {
+    const key = t ? t.id : 'all', m = Number(mins[key])
+    if (!m) return run(async () => { throw new Error('Type an amount first. A negative number takes time off.') })
+    const label = `${m > 0 ? 'Added' : 'Subtracted'} ${Math.abs(m)} min ${t ? `for ${t.code}` : 'for every running or stopped team'}.`
+    const r = await act(() => api.adjustTime(t ? t.id : null, Math.round(m * 60)), label)
+    setMins((x) => ({ ...x, [key]: '' }))
     return r
   }
-  const pick = (t, v) => setSigns((x) => { const k = t ? t.id : 'all'; return { ...x, [k]: x[k] === v ? 0 : v } })
-  const minBox = (id, t) => { const sign = signs[t ? t.id : 'all'] || 0; return (<>
-    <label className="sr" htmlFor={id}>Minutes{t ? ` for ${t.name}` : ' for every team'}</label>
-    <input id={id} type="number" min="0" step="any" inputMode="decimal" value={mins[t ? t.id : 'all'] ?? 1} onChange={(e) => setMins((x) => ({ ...x, [t ? t.id : 'all']: e.target.value }))} style={{ width: '4.5rem' }} />
-    <button type="button" className={`btn btn--sm ${sign > 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign > 0} onClick={() => pick(t, 1)}>+</button>
-    <button type="button" className={`btn btn--sm ${sign < 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign < 0} onClick={() => pick(t, -1)}>−</button>
-    <button type="button" className="btn btn--primary btn--sm" disabled={!sign} onClick={() => adjust(t, sign)}>{sign < 0 ? 'Subtract' : 'Add'}</button></>) }
+  const minBox = (id, t) => { const key = t ? t.id : 'all'; return (<>
+    <label className="sr" htmlFor={id}>Time to add{t ? ` for ${t.name}` : ' for every team'}. A negative number takes time off.</label>
+    <input id={id} type="number" step="any" inputMode="decimal" placeholder="e.g. 2 or -2" value={mins[key] ?? ''} onChange={(e) => setMins((x) => ({ ...x, [key]: e.target.value }))}
+      onKeyDown={(e) => { if (e.key === 'Enter') adjust(t) }} style={{ width: '7rem' }} />
+    <button type="button" className="btn btn--primary btn--sm" disabled={!Number(mins[key])} onClick={() => adjust(t)}>Add</button></>) }
   const open = logsFor && (rows || []).find((t) => t.id === logsFor)
 
   return (
     <>
-      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Pick + or −, type the amount, then press Add (or Subtract) to apply it; a clock never goes below 0:00 and the change is logged. Reset puts it back to 0:00 and keeps the logs.</Head>
+      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Type an amount and press Add (a negative number takes time off); a clock never goes below 0:00 and the change is logged. Reset puts it back to 0:00 and keeps the logs.</Head>
       <ErrorNote error={error} />
       {node}
       <section className="panel">
