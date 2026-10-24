@@ -14,17 +14,29 @@ export default function Timer() {
   const { run, node } = useFlash()
   const [allNote, setAllNote] = useState('')
   const [notes, setNotes] = useState({}) // per team, while typing
+  const [mins, setMins] = useState({}) // minutes to add or subtract, per team ('all' for every team)
   const [logsFor, setLogsFor] = useState(null) // the team whose logs are open in the pop-up
   const act = async (fn, ok) => { const r = await run(fn, ok); reload(); return r }
   const logOne = async (t) => {
     await act(() => api.logTime(t.id, notes[t.id] || ''), `Logged ${t.code} at ${mmss(elapsedNow(t.timer, at))}.`)
     setNotes((n) => ({ ...n, [t.id]: '' }))
   }
+  const adjust = (t, sign) => {
+    const key = t ? t.id : 'all', m = Number(mins[key] ?? 1)
+    if (!(m > 0)) return run(async () => { throw new Error('Enter a number of minutes above 0.') })
+    const label = `${sign > 0 ? 'Added' : 'Subtracted'} ${m} min ${t ? `for ${t.code}` : 'for every running or stopped team'}.`
+    return act(() => api.adjustTime(t ? t.id : null, sign * Math.round(m * 60)), label)
+  }
+  const minBox = (id, t) => (<>
+    <label className="sr" htmlFor={id}>Minutes{t ? ` for ${t.name}` : ' for every team'}</label>
+    <input id={id} type="number" min="0" step="any" inputMode="decimal" value={mins[t ? t.id : 'all'] ?? 1} onChange={(e) => setMins((x) => ({ ...x, [t ? t.id : 'all']: e.target.value }))} style={{ width: '4.5rem' }} />
+    <button type="button" className="btn btn--ghost btn--sm" onClick={() => adjust(t, 1)}>+ min</button>
+    <button type="button" className="btn btn--ghost btn--sm" onClick={() => adjust(t, -1)}>− min</button></>)
   const open = logsFor && (rows || []).find((t) => t.id === logsFor)
 
   return (
     <>
-      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Reset puts it back to 0:00 and keeps the logs.</Head>
+      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. + min / − min moves a clock forward or back (never below 0:00) and logs the change. Reset puts it back to 0:00 and keeps the logs.</Head>
       <ErrorNote error={error} />
       {node}
       <section className="panel">
@@ -35,13 +47,14 @@ export default function Timer() {
           <label className="sr" htmlFor="all-note">Note for every team</label>
           <input id="all-note" type="text" maxLength={200} placeholder="Note (optional)" value={allNote} onChange={(e) => setAllNote(e.target.value)} style={{ width: '14rem' }} />
           <button type="button" className="btn btn--ghost btn--sm" onClick={async () => { await act(() => api.logTime(null, allNote), 'Logged every team.'); setAllNote('') }}>Log all</button>
+          {minBox("all-min")}
         </div>
       </section>
 
       {!rows ? <Loading /> : (
         <div className="tablewrap"><table className="table table--teams"><caption className="sr">Stopwatches by team</caption>
-          <thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Time</th><th scope="col">Clock</th><th scope="col">Log the time</th><th scope="col">Logs</th></tr></thead>
-          <tbody>{rows.length === 0 && <tr><td colSpan="6" className="muted">No teams yet.</td></tr>}
+          <thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Time</th><th scope="col">Clock</th><th scope="col">Add / subtract</th><th scope="col">Log the time</th><th scope="col">Logs</th></tr></thead>
+          <tbody>{rows.length === 0 && <tr><td colSpan="7" className="muted">No teams yet.</td></tr>}
             {rows.map((t) => {
               const none = t.timer.status === 'none', running = t.timer.status === 'running'
               return (
@@ -53,6 +66,7 @@ export default function Timer() {
                     <button type="button" className="btn btn--primary btn--sm" disabled={running} onClick={() => act(() => api.startTimer(t.id), `Started ${t.code}.`)}>Start</button>
                     <button type="button" className="btn btn--ghost btn--sm" disabled={!running} onClick={() => act(() => api.stopTimer(t.id), `Stopped ${t.code}.`)}>Stop</button>
                     <button type="button" className="btn btn--ghost btn--sm" disabled={none} onClick={() => { if (window.confirm(`Put ${t.name}'s clock back to 0:00?`)) act(() => api.resetTimer(t.id), `Reset ${t.code}.`) }}>Reset</button></div></td>
+                  <td><div className="btn-row">{running || t.timer.status === 'stopped' ? minBox(`m${t.id}`, t) : <span className="muted">start it first</span>}</div></td>
                   <td><div className="btn-row">
                     <label className="sr" htmlFor={`n${t.id}`}>Note for {t.name}</label>
                     <input id={`n${t.id}`} type="text" maxLength={200} placeholder="Note (optional)" value={notes[t.id] ?? ''} onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))}

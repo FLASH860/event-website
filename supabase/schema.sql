@@ -592,6 +592,27 @@ begin
   perform public._audit('timer_reset', coalesce((select code from public.teams where id = p_team), 'all teams'));
 end $$;
 
+-- Moves a stopwatch forward (positive) or back (negative) by p_seconds, running or stopped; it never goes below 0:00.
+-- p_team = null means every team that has started. The change is written to that team's logs.
+create or replace function public.admin_adjust_time(p_team uuid, p_seconds int) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_note text := case when p_seconds >= 0 then 'Added ' else 'Subtracted ' end || (abs(p_seconds) / 60) || ':' || lpad((abs(p_seconds) % 60)::text, 2, '0');
+begin
+  perform public._need_admin();
+  if p_seconds is null or p_seconds = 0 then raise exception 'bad_amount'; end if;
+  if p_team is not null and not exists (select 1 from public.team_stopwatch where team_id = p_team and status in ('running', 'stopped')) then
+    raise exception 'not_started';
+  end if;
+  update public.team_stopwatch s set elapsed_ms = greatest(
+      s.elapsed_ms + p_seconds * 1000::bigint,
+      -case when s.status = 'running' then greatest(0, (extract(epoch from (now() - s.started_at)) * 1000)::bigint) else 0 end)
+    where s.status in ('running', 'stopped') and (p_team is null or s.team_id = p_team);
+  insert into public.team_time_log (team_id, elapsed_ms, note)
+  select s.team_id, (public._timer_json(s.team_id) ->> 'elapsedMs')::bigint, v_note
+  from public.team_stopwatch s where s.status in ('running', 'stopped') and (p_team is null or s.team_id = p_team);
+  perform public._audit('timer_adjusted', coalesce((select code from public.teams where id = p_team), 'all teams') || ': ' || v_note);
+end $$;
+
 -- Saves the time as it reads right now, with a short note, without stopping the clock. p_team = null means every team that has a stopwatch.
 create or replace function public.admin_log_time(p_team uuid, p_note text) returns void
 language plpgsql security definer set search_path = public as $$
@@ -690,5 +711,5 @@ to authenticated;
 
 -- Organisers (each re-checks is_admin() and raises 'forbidden' for anyone else)
 grant execute on function
-  public.admin_list_teams(), public.admin_start_timer(uuid), public.admin_stop_timer(uuid), public.admin_reset_timer(uuid), public.admin_log_time(uuid, text), public.admin_time_log(uuid)
+  public.admin_list_teams(), public.admin_start_timer(uuid), public.admin_stop_timer(uuid), public.admin_reset_timer(uuid), public.admin_log_time(uuid, text), public.admin_time_log(uuid), public.admin_adjust_time(uuid, int)
 to authenticated;
