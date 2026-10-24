@@ -129,6 +129,9 @@ r = await rpc('admin', 'admin_list_teams'); const alpha = r.v.find((t) => t.name
 ok('organiser sees teams with member names and progress', r.v.length === 2 && alpha.members.length === 4 && alpha.solvedCount === 1 && alpha.lastSolvedAt, JSON.stringify(alpha).slice(0, 300))
 ok('team list leaks no emails or join codes', !/@x\.com|joinCode/.test(JSON.stringify(r.v)))
 r = await rpc('p1', 'get_my_timer'); ok('no stopwatch yet', r.v.status === 'none' && r.v.elapsedMs === 0)
+r = await rpc('solo', 'start_my_timer'); ok('opening the first question starts the team clock', r.ok && r.v.status === 'running', JSON.stringify(r))
+r = await rpc('solo', 'start_my_timer'); ok('starting again does not restart it', r.ok && r.v.status === 'running' && r.v.elapsedMs < 5000, JSON.stringify(r))
+await db.exec(`delete from public.team_stopwatch where team_id <> '${tid}'`)   // leave the other team without a clock for the checks below
 r = await rpc('admin', 'admin_log_time', tid, 'too early'); ok('cannot log a team that has no stopwatch', !r.ok && /not_started/.test(r.err), r.err)
 await rpc('admin', 'admin_start_timer', tid)
 r = await rpc('p1', 'get_my_timer'); ok('start: Alpha running and counting up from 0', r.v.status === 'running' && r.v.elapsedMs >= 0 && r.v.elapsedMs < 5000, JSON.stringify(r.v))
