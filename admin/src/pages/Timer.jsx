@@ -34,14 +34,14 @@ export default function Timer() {
   const minBox = (id, t) => { const sign = signs[t ? t.id : 'all'] || 0; return (<>
     <label className="sr" htmlFor={id}>Minutes{t ? ` for ${t.name}` : ' for every team'}</label>
     <input id={id} type="number" min="0" step="any" inputMode="decimal" value={mins[t ? t.id : 'all'] ?? 1} onChange={(e) => setMins((x) => ({ ...x, [t ? t.id : 'all']: e.target.value }))} style={{ width: '4.5rem' }} />
-    <button type="button" className={`btn btn--sm ${sign > 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign > 0} onClick={() => pick(t, 1)}>+ min</button>
-    <button type="button" className={`btn btn--sm ${sign < 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign < 0} onClick={() => pick(t, -1)}>− min</button>
+    <button type="button" className={`btn btn--sm ${sign > 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign > 0} onClick={() => pick(t, 1)}>+</button>
+    <button type="button" className={`btn btn--sm ${sign < 0 ? 'btn--primary' : 'btn--ghost'}`} aria-pressed={sign < 0} onClick={() => pick(t, -1)}>−</button>
     <button type="button" className="btn btn--primary btn--sm" disabled={!sign} onClick={() => adjust(t, sign)}>{sign < 0 ? 'Subtract' : 'Add'}</button></>) }
   const open = logsFor && (rows || []).find((t) => t.id === logsFor)
 
   return (
     <>
-      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Pick + min or − min, type the minutes, then press Add (or Subtract) to apply it; a clock never goes below 0:00 and the change is logged. Reset puts it back to 0:00 and keeps the logs.</Head>
+      <Head kicker="Control" title="Timer">Each clock counts up from 0:00. Start begins it (or carries on after a stop), Stop freezes it. Log saves the time as it reads right now, with an optional note, and the clock keeps running. Pick + or −, type the amount, then press Add (or Subtract) to apply it; a clock never goes below 0:00 and the change is logged. Reset puts it back to 0:00 and keeps the logs.</Head>
       <ErrorNote error={error} />
       {node}
       <section className="panel">
